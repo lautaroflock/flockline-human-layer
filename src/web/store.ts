@@ -165,7 +165,10 @@ function applyMessage(m: ServerMessage) {
     }
   });
   // Los comentarios huérfanos se recalculan en el servidor al crear una versión nueva.
-  if (m.type === "artifact.created" && state.detail?.task.id === m.taskId) run(reloadDetail());
+  if (m.type === "artifact.created" && state.detail?.task.id === m.taskId) {
+    run(reloadDetail());
+    if (m.artifact.phase !== "implement" && state.tab !== m.artifact.phase) setTab(m.artifact.phase); // seguir al artefacto nuevo
+  }
 }
 
 export async function boot() {

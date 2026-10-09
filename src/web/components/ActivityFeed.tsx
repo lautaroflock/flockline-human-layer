@@ -1,5 +1,8 @@
 import { useStore } from "../store";
 
+// Referencia estable para el selector (ver Presence.tsx).
+const NONE: never[] = [];
+
 const VERB: Record<string, (p: any) => string> = {
   "task.created": () => "creó la tarea y el worktree",
   "phase.run": (p) => `ejecutó ${p?.phase}`,
@@ -12,7 +15,7 @@ const VERB: Record<string, (p: any) => string> = {
 };
 
 export function ActivityFeed() {
-  const activity = useStore((s) => s.detail?.activity ?? []);
+  const activity = useStore((s) => s.detail?.activity ?? NONE);
   const users = useStore((s) => s.users);
   return (
     <div className="act" data-testid="activity">

@@ -93,3 +93,4 @@ aside.left{border-right:1px solid var(--line);background:var(--panel);padding:12
 .toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--err);color:var(--err);padding:6px 14px;border-radius:99px;z-index:20}
 button kbd{background:rgba(0,0,0,.25);border-color:rgba(0,0,0,.35);color:inherit}
 .actions{flex-wrap:wrap}
+.tabs .vers{width:84px;margin-right:8px}

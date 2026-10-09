@@ -2,6 +2,9 @@ import { useState } from "react";
 import { login, run, useStore } from "../store";
 import type { User } from "../../shared/types";
 
+// Referencia estable: un `?? []` nuevo en cada render rompe useSyncExternalStore (bucle infinito).
+const NONE: never[] = [];
+
 export const Avatar = ({ user, me, off, title }: { user: Pick<User, "name" | "color">; me?: boolean; off?: boolean; title?: string }) => (
   <span className={`av ${me ? "me" : ""} ${off ? "off" : ""}`} style={{ background: user.color }} title={title ?? user.name}>
     {user.name[0]?.toUpperCase()}
@@ -12,7 +15,7 @@ export const Avatar = ({ user, me, off, title }: { user: Pick<User, "name" | "co
 export function PresenceBar() {
   const users = useStore((s) => s.users);
   const me = useStore((s) => s.user);
-  const presence = useStore((s) => s.detail?.presence ?? []);
+  const presence = useStore((s) => s.detail?.presence ?? NONE);
   return (
     <div className="presence" data-testid="presence">
       {users.map((u) => {

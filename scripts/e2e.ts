@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, symlinkSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureDemoRepo } from "./demoRepo";
-import type { Artifact, ServerMessage, Task, TaskDetail, User } from "../src/shared/types";
+import type { ServerMessage, Task, TaskDetail, User } from "../src/shared/types";
 
 const root = join(import.meta.dir, "..");
 const tmp = mkdtempSync(join(tmpdir(), "flockline-e2e-"));
@@ -287,7 +287,6 @@ async function main() {
   check("commits de fase con autor", cm.length === 3 && cm.some((c) => c.subject.startsWith("research:") && c.author === "Ana") && cm.some((c) => c.subject.startsWith("implement:")), JSON.stringify(cm));
   check("worktree.changed se emitió durante la ejecución", lau.msgs.some((m) => m.type === "worktree.changed"));
 
-  // (los hitos siguientes agregan sus pasos acá)
 
   await stopServer();
   rmSync(tmp, { recursive: true, force: true });
@@ -300,6 +299,3 @@ main().catch(async (e) => {
   await stopServer();
   process.exit(1);
 });
-void writeFileSync;
-void symlinkSync;
-void ({} as Artifact);
