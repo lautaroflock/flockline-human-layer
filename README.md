@@ -47,6 +47,14 @@ Entrás con un nombre (sin contraseñas). Abrí la URL en dos navegadores con no
 
 El servidor escucha en `127.0.0.1`. Para compartirlo en una red de confianza: `HOST=0.0.0.0`. Con WSL2, `localhost` solo se reenvía a la propia máquina: usá `networkingMode=mirrored` en `.wslconfig` o un túnel. No hay autenticación real: no lo expongas a Internet.
 
+## Proyectos
+
+La barra lateral lista los repos abiertos. **+ Abrir** pide la ruta de un repo git local y el agente:
+- **Claude (real)**, por defecto: investiga, planifica e implementa con el Agent SDK en un worktree aislado, con tope de costo por fase.
+- **Mock**: solo sirve para la demo `demo-api`.
+
+Elegir un proyecto filtra las tareas, y las tareas nuevas se crean ahí. El modo se cambia tocando la insignia del proyecto. Cerrar un proyecto lo oculta sin borrar nada; se reabre con la misma ruta.
+
 ## Flujos de trabajo
 
 Cada tarea elige su flujo al crearse (`src/shared/workflows.ts`):
