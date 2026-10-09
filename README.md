@@ -1,123 +1,191 @@
 # Flockline
 
-Clon web local del núcleo de HumanLayer: tareas que avanzan por **Spec → Research → Plan → Implement**. La **Spec** la escriben las personas a mano (sin agente); las demás fases las produce el agente. Cada fase deja un artefacto Markdown que el equipo puede **comentar o editar directamente** (cada edición crea una versión con autor) y aprobar antes de pasar a la siguiente, y la implementación queda como diff en un **git worktree** aislado. Incluye multiusuario liviano (autor en cada acción, presencia, feed de actividad) y un explorador del worktree.
+**Flockline es un espacio de trabajo local donde un agente de código (Claude) hace tareas de ingeniería por etapas, y un equipo de personas revisa, corrige y aprueba cada etapa antes de que avance.** Está inspirado en [HumanLayer](https://humanlayer.com/): el agente no escribe 500 líneas de código sin contexto. Primero investiga y planifica, y las personas revisan esos documentos cortos. Recién después implementa, en una copia aislada del repo.
 
-El spec completo está en `specs/` (un archivo por hito) y en el documento "Spec — Clon web de HumanLayer".
-
-## Requisitos
-
-- **Bun 1.2+**. En esta máquina se instala como dependencia local: `npm install` deja `node_modules/.bin/bun`; con Bun global alcanza `bun`.
-- **Git 2.40+** con `user.name` y `user.email`.
-- Para `AGENT_MODE=real`: Claude Code autenticado (`claude login`) o `ANTHROPIC_API_KEY` en `.env`.
-- Repos de trabajo en el filesystem local. Si usás WSL2, mantenelos en `~/repos/...` y no en `/mnt/c/...` (el acceso cruzado degrada git).
-
-## Uso
-
-```bash
-npm install            # instala dependencias (incluye Bun local)
-cp .env.example .env   # opcional
-npx bun run dev        # http://localhost:3000
-npx bun run seed       # crea el repo de ejemplo y la tarea demo (con el servidor corriendo)
-npx bun run e2e        # guion completo en modo mock, dos usuarios, sin tocar la UI
-npx bun run e2e:real   # test interno con el Agent SDK REAL (gasta tokens, con topes por fase)
-npx bun run typecheck
+```
+ Spec ──► Research ──► Plan ──► Implement ──► (merge manual)
+  │          │          │          │
+ personas   agente     agente     agente        cada flecha es una aprobación humana
+            ▲ comentar / editar / pedir revisión / volver atrás ▲
 ```
 
-Entrás con un nombre (sin contraseñas). Abrí la URL en dos navegadores con nombres distintos para ver presencia, comentarios y aprobaciones con autor.
+## La idea en 30 segundos
 
-### Agente mock vs. real
+1. **Abrís un proyecto**: la ruta de un repo git local.
+2. **Creás una tarea**: escribiéndola o importando un ticket. Flockline crea una **rama y un git worktree** solo para esa tarea; tu rama principal no se toca nunca.
+3. **Escribís la spec** a mano: qué se quiere, el alcance y los criterios de aceptación.
+4. **El agente investiga** el código y escribe `research.md`. Vos y tu equipo lo **comentan, editan o aprueban**.
+5. **El agente planifica** (`plan.md`) con lo aprobado. Mismo ciclo: comentarios → revisión → aprobación.
+6. **El agente implementa** el plan en el worktree y corre los tests. Revisás el **diff**, con el **contexto del cambio**: qué llama el código nuevo y desde dónde se lo usa.
+7. Si te convence, aprobás, y la rama queda lista para mergear.
 
-`bun run e2e:real` levanta un servidor con `AGENT_MODE=real` y recorre RPI completo (research, plan, revisión con comentario, implement), QRSPI hasta Design y una sesión Freeform con el agente de verdad. Verifica estructura (artefactos, diff en `src/`, `bun test` que pasa, guarda) y al final imprime el costo. Se puede elegir qué correr: `bun scripts/e2e-real.ts rpi`. Cada fase tiene tope de turnos y de US$ (`PHASE_LIMITS`), escalable con `AGENT_BUDGET_SCALE`.
+Todo queda registrado: versiones de cada documento con su autor, comentarios, sesiones del agente con cada herramienta que usó, costo y commits por fase.
 
+## Qué incluye
 
-`AGENT_MODE=mock` (por defecto) ejecuta un agente guionado que **escribe archivos reales** en el worktree, sin gastar tokens; sirve para ensayar la demo (usa el repo de `seed`). `AGENT_MODE=real` usa el Claude Agent SDK con `cwd` en el worktree, una sesión por fase y `canUseTool` con las mismas reglas de seguridad.
-
-### Variables
-
-| Variable | Default | Uso |
-|---|---|---|
-| `PORT` / `HOST` | `3000` / `127.0.0.1` | Dirección del servidor |
-| `WORKTREES_DIR` | `~/.flockline/worktrees` | Dónde viven los worktrees |
-| `AGENT_MODE` | `mock` | `mock` o `real` |
-| `CLAUDE_MODEL` | — | Modelo para modo real |
-| `SESSION_SECRET` | dev | Firma de tokens de sesión |
-| `DB_PATH` | `data/flockline.db` | Base SQLite |
-
-## Que entren otras personas
-
-El servidor escucha en `127.0.0.1`. Para compartirlo en una red de confianza: `HOST=0.0.0.0`. Con WSL2, `localhost` solo se reenvía a la propia máquina: usá `networkingMode=mirrored` en `.wslconfig` o un túnel. No hay autenticación real: no lo expongas a Internet.
-
-## Proyectos
-
-La barra lateral lista los repos abiertos. **+ Abrir** pide la ruta de un repo git local y el agente:
-- **Claude (real)**, por defecto: investiga, planifica e implementa con el Agent SDK en un worktree aislado, con tope de costo por fase.
-- **Mock**: solo sirve para la demo `demo-api`.
-
-Elegir un proyecto filtra las tareas, y las tareas nuevas se crean ahí. El modo se cambia tocando la insignia del proyecto. Cerrar un proyecto lo oculta sin borrar nada; se reabre con la misma ruta.
+| Área | Qué hace |
+|---|---|
+| **Proyectos** | Varios repos abiertos a la vez, con un filtro de tareas por proyecto. Cada proyecto elige su agente: **Claude real** (por defecto) o **mock** (demo sin costo). |
+| **Flujos de trabajo** | RPI, QRSPI, Outline, PRD, Oneshot y Freeform (ver tabla abajo). |
+| **Agente** | [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk): una sesión por fase, en el worktree de la tarea, con log en vivo de texto, razonamiento y herramientas. |
+| **Revisión humana** | Comentarios sobre texto seleccionado, edición directa con versiones y autor, pedir una nueva versión al agente con los comentarios, aprobar, volver a una fase anterior, rehacer, abortar y cancelar. |
+| **Preguntas** | En QRSPI, el agente pregunta lo que cambia el diseño y las personas responden antes de que siga. |
+| **Diagramas y mockups** | Mermaid dibujado dentro de los documentos. `mockup.html` versionados y mostrados en un iframe aislado. |
+| **Contexto del cambio** | En el diff: qué funciones usa el código cambiado (con su cuerpo) y quién lo llama. Se expande nivel por nivel. Para TS/JS usa el LanguageService de TypeScript (el motor del LSP); para otros lenguajes, búsqueda de texto. |
+| **Worktree navegable** | Árbol de archivos con marcas M/A, visor con números de línea y commits por fase. |
+| **Multiusuario** | Identidad por nombre, presencia (quién mira qué pestaña), autor en cada acción y feed de actividad. Todo en vivo por WebSocket. |
+| **Tickets** | Importar desde Jira: hoy es un **mock** con tres tickets de ejemplo, listo para conectar el real. |
+| **Seguridad del agente** | Cada herramienta pasa por una guarda: lecturas y escrituras solo dentro del worktree, Bash por lista blanca y sesión aislada de tu configuración. |
 
 ## Flujos de trabajo
 
-Cada tarea elige su flujo al crearse (`src/shared/workflows.ts`):
+| Flujo | Fases | Para qué |
+|---|---|---|
+| **RPI** (default) | Spec → Research → Plan → Implement | Cambios medianos |
+| **QRSPI** | Spec → Questions → Research → Design → Structure → Plan → Implement | Cambios grandes o ambiguos |
+| **Outline** | Spec → Research → Outline → Implement | Cambios acotados: un esquema corto en vez de un plan detallado |
+| **PRD** | PRD → Research → Design → Plan → Implement | Funcionalidades nuevas de producto |
+| **Oneshot** | Spec → Implement | Bugs chicos y tareas obvias |
+| **Freeform** | Sin fases | Sesiones sueltas con un pedido libre sobre el mismo worktree |
 
-| Flujo | Fases |
-|---|---|
-| RPI (default) | Spec → Research → Plan → Implement |
-| QRSPI | Spec → Questions → Research → Design → Structure → Plan → Implement |
-| Outline | Spec → Research → Outline → Implement |
-| PRD | PRD → Research → Design → Plan → Implement |
-| Oneshot | Spec → Implement |
-| Freeform | sesiones sueltas con prompt libre, sin fases |
+Las fases **Spec** y **PRD** las escriben personas, con una plantilla precargada. Las demás las produce el agente, y cada una recibe los documentos aprobados de las anteriores.
 
-- **Questions**: el agente devuelve preguntas (salida estructurada); las personas responden, aceptan la sugerencia o marcan "no aplica". No se aprueba con preguntas abiertas y las respuestas alimentan las fases siguientes.
-- **Diagramas y mockups**: los bloques ```mermaid se dibujan dentro de los artefactos y en la vista previa del editor. En Design (o Plan si el flujo no tiene Design) el agente puede dejar `mockup.html`, que se versiona con el artefacto y se muestra en un iframe aislado de la app.
-- **Tickets de Jira (mock)**: "Desde Jira" en el alta de tareas lista tres tickets de ejemplo (FLK-123/124/125). Completa título, slug y flujo sugerido, y arranca la spec desde el ticket. No hay conexión real: `TICKETS_MODE` distinto de `mock` impide arrancar.
+## Empezar
 
-## Contexto del cambio (revisión)
+**Requisitos**
+- Node 20+ y Git 2.40+, con `user.name` y `user.email` configurados.
+- Bun se instala solo como dependencia local con `npm install`. No hace falta tenerlo global.
+- Para el agente real: Claude Code con la sesión iniciada (`claude login`) o `ANTHROPIC_API_KEY` en `.env`.
 
-En **Diff → Contexto del cambio**, cada función tocada muestra:
-- **Llama a**: las definiciones que usa el código cambiado, con su cuerpo, para ver qué hacen sin abrir un editor.
-- **Se llama desde**: los lugares que la usan.
+**Levantar la app**
 
-Cada ítem se expande un nivel más hacia arriba o hacia abajo y tiene "Abrir en Archivos" en esa línea. Para TS/JS usa el LanguageService de TypeScript (el motor del LSP). Para otros lenguajes usa búsqueda de texto, marcada como aproximada.
+```bash
+npm install
+```
+```bash
+npx bun run dev
+```
 
-## Spec manual y edición
+Abrí http://localhost:3000, entrá con tu nombre (no hay contraseñas), tocá **+ Abrir** en la barra lateral y elegí la ruta de un repo. Abrí la app en dos navegadores con nombres distintos para ver la colaboración en vivo.
 
-- La etapa **Spec** no corre agente: pestaña Spec → "Escribir spec" (plantilla precargada) → guardar → aprobar. La spec aprobada entra en los prompts de Research, Plan e Implement.
-- **✎ Editar** está disponible en el artefacto de la fase activa mientras espera revisión. Guardar crea una versión nueva (`PUT /api/tasks/:id/phases/:phase/artifact`), reescribe el archivo del worktree y migra los comentarios abiertos cuya cita sigue en el texto. Si otra persona guardó antes, el servidor responde 409.
-- El resumen de Implement no se edita a mano.
+**Probar sin gastar tokens.** Con el servidor corriendo, en otra terminal:
 
-## Abortar, cancelar y retroceder
+```bash
+npx bun run seed
+```
 
-- **Abortar sesión**: corta la ejecución del agente en curso; la fase vuelve a `idle`.
-- **Cancelar tarea**: corta la sesión en curso y bloquea ejecutar/aprobar hasta **Reabrir**. El worktree y el historial se conservan.
-- **↩ Volver a una fase** (en cada paso aprobado del stepper): el worktree vuelve al commit con que se aprobó esa fase; se descartan el código y los artefactos de las fases siguientes y esas fases quedan sin aprobar. Las versiones anteriores siguen en el historial.
-- **↺ Rehacer** la fase actual: descarta su resultado sin aprobar y la deja lista para ejecutarse de nuevo.
+Crea un repo de ejemplo (`~/.flockline/demo-api`), lo abre como proyecto en modo **mock** y le agrega la tarea del guion de demo: "Agregar rate limiting por IP al endpoint /login".
 
-## Seguridad del agente
+## Cómo se trabaja una tarea
 
-En modo real cada herramienta pasa por la guarda (`src/server/guard.ts`) vía `canUseTool` y un hook `PreToolUse`: lecturas y escrituras confinadas al worktree (Research/Plan solo escriben en `.flock/<slug>/`), Bash por lista blanca (`BASH_ALLOW`) y sesión aislada de los settings, hooks y MCP del usuario. `npx bun run test` corre los tests de la guarda; `npx bun run check:real` lo verifica contra el SDK real (unos centavos).
+1. **Spec**: pestaña Spec → "Escribir spec" → Guardar → **Aprobar**.
+2. **Ejecutar** la fase (o `Ctrl+Enter`). El log muestra en vivo lo que hace el agente.
+3. **Revisar** el documento:
+   - seleccioná texto → **Comentar**;
+   - **✎ Editar** para corregir a mano (crea una versión nueva con tu nombre);
+   - **Enviar comentarios al agente** para que reescriba el documento con esos cambios.
+4. **Aprobar como…**: deja un commit de fase en la rama de la tarea y avanza a la siguiente.
+5. En **Implement**, revisá **Diff** y **Contexto del cambio**, y si hace falta **Archivos**.
+6. **Merge**: Flockline no mergea solo. Desde tu repo:
 
-## Atajos
+```bash
+git merge flock/<slug-de-la-tarea>
+```
 
-`N` nueva tarea · `J`/`K` tarea siguiente/anterior · `Ctrl+Enter` ejecutar o aprobar la fase activa · `C` comentar la selección · `]` siguiente pestaña.
+**Si algo sale mal:**
+- **Abortar sesión** corta al agente.
+- **↺ Rehacer** descarta el resultado de la fase actual.
+- **↩ Volver** lleva el worktree al momento en que se aprobó una fase anterior.
+- **Cancelar tarea** la congela hasta reabrirla.
+
+**Atajos:** `N` nueva tarea · `J`/`K` tarea siguiente/anterior · `Ctrl+Enter` ejecutar o aprobar · `C` comentar la selección · `]` siguiente pestaña.
+
+## El agente: real y mock
+
+- **Real** (por defecto): Claude Agent SDK con `cwd` en el worktree.
+  - Cada fase tiene sus herramientas y un **tope de turnos y de dólares** (`PHASE_LIMITS` en `src/server/agent.ts`, escalable con `AGENT_BUDGET_SCALE`).
+  - Cuando una revisión pide cambios, retoma la sesión anterior (`resume`).
+- **Mock**: un guion determinista que escribe archivos de verdad, pensado **solo** para el repo de demo. En otros repos no hace el trabajo real. Sirve para ensayar y para los tests.
+
+**La guarda** (`src/server/guard.ts`) se aplica con `canUseTool` y con un hook `PreToolUse` que corre antes de **toda** herramienta:
+- Lecturas y escrituras solo dentro del worktree. Research, Plan y las demás fases de documentos solo escriben en `.flock/<slug>/`.
+- Bash por **lista blanca** (`bun test`, `npm test`, `node --test`, `git status/diff/log`…), sin operadores de shell. Configurable con `BASH_ALLOW`.
+- Sesión **aislada**: no carga tus hooks, MCP ni settings, ni los del repo destino. El `CLAUDE.md` del repo se le pasa como contexto.
+
+## Pruebas
+
+| Comando | Qué prueba | Costo |
+|---|---|---|
+| `npx bun run test` | Guarda de herramientas y motor de contexto del cambio (unitarios) | — |
+| `npx bun run e2e` | Guion completo por HTTP + WebSocket con dos usuarios y el agente mock: los 17 hitos, unas 190 verificaciones | — |
+| `npx bun run e2e:real` | RPI completo, QRSPI hasta Design y Freeform con **Claude real** sobre el repo de demo. Verificaciones estructurales e informe del costo | ~US$1,5–2 |
+| `npx bun run check:real` | La guarda contra el SDK real: intenta leer y escribir fuera de lo permitido | centavos |
+| `npx bun run typecheck` | Tipos (TypeScript estricto) | — |
+
+## Configuración
+
+| Variable | Default | Uso |
+|---|---|---|
+| `PORT` / `HOST` | `3000` / `127.0.0.1` | Dirección del servidor. `HOST=0.0.0.0` para compartirlo en una red de confianza |
+| `AGENT_MODE` | `real` | Agente por defecto de los proyectos nuevos (`real` o `mock`) |
+| `CLAUDE_MODEL` | el del SDK | Modelo del agente real |
+| `AGENT_BUDGET_SCALE` | `1` | Escala los topes de US$ por fase |
+| `BASH_ALLOW` | lista de tests y git de lectura | Comandos que el agente puede correr |
+| `WORKTREES_DIR` | `~/.flockline/worktrees` | Dónde viven los worktrees |
+| `DB_PATH` | `data/flockline.db` | Base SQLite |
+| `TICKETS_MODE` | `mock` | Único valor válido por ahora: con otro valor el servidor no arranca |
+| `SESSION_SECRET` | de desarrollo | Firma de los tokens de sesión. Cambialo si compartís la app |
+
+No hay autenticación real: no expongas la app a Internet. Con WSL2, `localhost` solo se reenvía a la propia máquina; para compartirla usá `networkingMode=mirrored` o un túnel.
+
+## Arquitectura
+
+Un solo proceso [Bun](https://bun.sh): servidor HTTP + WebSocket, SQLite (`bun:sqlite`) y el bundle de la interfaz en React. El estado en vivo viaja por WebSocket, con una suscripción por tarea.
+
+```
+src/server/
+  index.ts          Bun.serve: rutas REST, WebSocket y la SPA
+  routes.ts         API REST
+  orchestrator.ts   máquina de estados de las fases: toda transición se valida acá, no en la UI
+  agent.ts          agente real (Agent SDK) y mock, topes por fase
+  guard.ts          guarda de herramientas
+  service.ts        proyectos, tareas y detalle
+  git.ts            worktrees, diff, commits, reset al retroceder
+  files.ts          lectura segura de archivos del worktree
+  codeintel/        contexto del cambio (TypeScript LanguageService + búsqueda de texto)
+  integrations/     tickets (Jira mock)
+  prompts/          un prompt por fase, en Markdown y editable
+  db.ts · bus.ts · presence.ts · auth.ts
+src/shared/
+  types.ts          tipos compartidos servidor/cliente
+  workflows.ts      catálogo de fases y flujos
+src/web/            React: store, componentes (stepper, log, documentos, diff, archivos, preguntas…)
+scripts/            seed, e2e, e2e-real, spike del SDK, autocommit
+tests/              unitarios (bun test)
+specs/              un spec por hito, H0 a H17
+```
+
+Datos: tareas, sesiones, eventos del agente, versiones de cada documento, comentarios, preguntas, actividad y proyectos en SQLite. El código y los documentos aprobados viven en la rama `flock/<slug>` de cada worktree.
+
+## Estado y límites
+
+- Pensado para uso local y demos de equipo, no para producción: la identidad es solo un nombre.
+- Los tickets de Jira son de ejemplo. No hay integración real con Jira ni con Linear.
+- El merge a la rama principal es manual, a propósito.
+- El contexto del cambio es exacto en TS/JS y aproximado en el resto de los lenguajes; conectar servidores LSP de otros lenguajes queda pendiente.
+- La historia completa del diseño está en [`specs/`](specs/), un archivo por hito, con lo que se decidió y cómo se verificó.
 
 ## Resetear
 
 ```bash
-rm data/flockline.db       # borra tareas y comentarios
+rm data/flockline.db
+```
+```bash
 git -C <repo> worktree prune
 ```
 
-## Estructura
+El primero borra proyectos, tareas e historial. El segundo limpia los worktrees huérfanos de un repo.
 
-```
-src/server  index.ts · routes.ts · orchestrator.ts · agent.ts · guard.ts · git.ts · files.ts · db.ts · bus.ts · presence.ts · prompts/
-src/shared  types.ts
-src/web     main.tsx · store.ts · api.ts · components/
-scripts     spike.ts · seed.ts · e2e.ts · autocommit.mjs
-specs       un spec por hito (H0–H9)
-```
+## Desarrollo de Flockline con Claude Code
 
-## Commits automáticos
-
-`.claude/settings.json` registra un hook `PostToolUse` (`Write|Edit`) que ejecuta `scripts/autocommit.mjs`: cada archivo que Claude Code implementa en este repo se commitea con el hito de `specs/.current` como prefijo.
+`.claude/settings.json` registra un hook `PostToolUse` (`Write|Edit`) que corre `scripts/autocommit.mjs`: cada archivo que Claude Code escribe en este repo se commitea, con el hito de `specs/.current` como prefijo.
