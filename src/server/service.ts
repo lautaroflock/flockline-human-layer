@@ -28,8 +28,6 @@ export function mustTask(id: string): Task {
 
 /** Marca como huérfanos los comentarios abiertos cuyo texto citado ya no está en la última versión. */
 export function commentsWithOrphans(taskId: string): Comment[] {
-  const latest = new Map<string, string>();
-  for (const a of artifacts.byTask(taskId)) latest.set(a.phase, a.content); // ordenadas por versión asc: queda la última
   const latestIds = new Set(["research", "plan", "implement"].map((p) => artifacts.latest(taskId, p as never)?.id).filter(Boolean));
   return comments.byTask(taskId).map((c) => {
     if (c.status !== "open" || !latestIds.has(c.artifact_id)) return c;

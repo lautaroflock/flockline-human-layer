@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { ArtifactPanel } from "./components/ArtifactPanel";
+import { PhaseStepper } from "./components/PhaseStepper";
+import { SessionLog } from "./components/SessionLog";
 import { TaskList } from "./components/TaskList";
 import { boot, login, logout, run, useStore } from "./store";
 import { getToken } from "./api";
@@ -26,6 +29,17 @@ function Login() {
   );
 }
 
+function Center() {
+  const detail = useStore((s) => s.detail);
+  if (!detail) return <section className="center"><p className="empty">Elegí o creá una tarea</p></section>;
+  return (
+    <section className="center">
+      <PhaseStepper />
+      <SessionLog />
+    </section>
+  );
+}
+
 function App() {
   const user = useStore((s) => s.user);
   const error = useStore((s) => s.error);
@@ -47,10 +61,8 @@ function App() {
       </header>
       <main className="cols">
         <TaskList />
-        <section className="center">
-          <p className="empty">Elegí o creá una tarea</p>
-        </section>
-        <section className="right" />
+        <Center />
+        <ArtifactPanel />
       </main>
       {error && <div className="toast">{error}</div>}
     </div>

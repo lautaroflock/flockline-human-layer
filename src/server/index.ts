@@ -5,6 +5,7 @@ import { bus } from "./bus";
 import { config } from "./config";
 import { users } from "./db";
 import { fail, json } from "./http";
+import { recoverOnBoot } from "./orchestrator";
 import { presence } from "./presence";
 import { routes } from "./routes";
 import type { ClientMessage, User } from "../shared/types";
@@ -61,5 +62,6 @@ const server = Bun.serve<{ user: User }>({
   fetch: () => fail(404, "No encontrado"),
 });
 
+recoverOnBoot();
 bus.attach(server as never);
 console.log(`Flockline en http://${config.host}:${config.port}  (agente: ${config.agentMode})`);
