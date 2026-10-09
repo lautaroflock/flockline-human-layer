@@ -1,4 +1,5 @@
 import { setState, setTab, useStore } from "../store";
+import { DiffView } from "./DiffView";
 import { CommentLayer, SelectionPopover, userColor, userName } from "./CommentLayer";
 import { Markdown, type Mark } from "./Markdown";
 import { PHASES, type Artifact, type PhaseName, type Tab } from "../../shared/types";
@@ -6,6 +7,7 @@ import { PHASES, type Artifact, type PhaseName, type Tab } from "../../shared/ty
 const TABS: { id: Tab; label: string }[] = [
   { id: "research", label: "Research" },
   { id: "plan", label: "Plan" },
+  { id: "diff", label: "Diff" },
 ];
 
 /** Versión visible de un artefacto: la elegida por la persona o, por defecto, la última. */
@@ -31,9 +33,9 @@ export function ArtifactPanel() {
             {t.label}
           </div>
         ))}
-        <VersionPicker phase={phase} />
+        {tab !== "diff" && <VersionPicker phase={phase} />}
       </div>
-      <ArtifactView phase={phase} />
+      {tab === "diff" ? <DiffView /> : <ArtifactView phase={phase} />}
     </section>
   );
 }

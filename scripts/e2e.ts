@@ -171,6 +171,26 @@ async function main() {
   const apPlan = await lau.api(`/api/tasks/${task.id}/phases/plan/approve`, "POST");
   check("aprobar plan v2", apPlan.status === 200 && apPlan.data.phase === "implement");
 
+  // ───────── H6 implement + diff
+  section("H6 · implement, guarda de herramientas y diff");
+  await lau.api(`/api/tasks/${task.id}/phases/implement/run`, "POST");
+  await phaseDone(lau, task.id, "implement", 1);
+  det = (await lau.api<TaskDetail>(`/api/tasks/${task.id}`)).data;
+  const implSession = det.sessions.find((x) => x.phase === "implement")!;
+  const implEvents = (await lau.api<any[]>(`/api/sessions/${implSession.id}/events`)).data.map((e) => ({ ...e, p: JSON.parse(e.payload) }));
+  const denied = implEvents.find((e) => e.type === "tool_result" && e.p.is_error && /git push/.test(e.p.content));
+  check("`git push` es rechazado por la guarda y queda registrado", !!denied, JSON.stringify(implEvents.filter((e) => e.type === "tool_result").map((e) => e.p.content.slice(0, 60))));
+  check("las pruebas del worktree corrieron y pasaron", implEvents.some((e) => e.type === "tool_result" && /4 pass/.test(e.p.content) && /0 fail/.test(e.p.content) && !e.p.is_error));
+  check("rateLimit.ts implementado en el worktree", /Retry-After/.test(readFileSync(join(wt, "src/middleware/rateLimit.ts"), "utf8")));
+  check("main sigue intacta tras implementar", git(repo, "rev-parse", "main") === mainHead && !readFileSync(join(repo, "src/middleware/rateLimit.ts"), "utf8").includes("Retry-After"));
+  const diffRes = (await lau.api<{ diff: string }>(`/api/tasks/${task.id}/diff`)).data.diff;
+  check("el diff muestra los archivos de código", diffRes.includes("src/middleware/rateLimit.ts") && diffRes.includes("src/routes/auth.ts") && diffRes.includes("tests/ratelimit.test.ts"));
+  check("el diff excluye .flock/", !diffRes.includes(".flock"));
+  const fin = await ana.api(`/api/tasks/${task.id}/phases/implement/approve`, "POST");
+  check("aprobar implement → tarea done", fin.status === 200 && fin.data.phase === "done");
+  const log = git(wt, "log", "--format=%an|%s");
+  check("commits de fase firmados por quien aprobó", log.includes("Ana|implement:") && log.includes("Ana|research:") && log.includes("Lautaro|plan:"), log);
+
   // (los hitos siguientes agregan sus pasos acá)
 
   await stopServer();

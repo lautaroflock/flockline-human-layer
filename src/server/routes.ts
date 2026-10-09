@@ -3,6 +3,7 @@ import { bus } from "./bus";
 import { abortSession, approvePhase, revisePhase, runPhase } from "./orchestrator";
 import { authed, bodyOf, HttpError } from "./http";
 import { presence } from "./presence";
+import * as git from "./git";
 import { commentView, createTask, logActivity, mustTask, taskDetail } from "./service";
 import type { Comment } from "../shared/types";
 
@@ -90,6 +91,13 @@ export const routes = {
       bus.publishTask(art.task_id, { type: "comment.updated", taskId: art.task_id, comment: commentView(next) });
       if (patch.status === "resolved") logActivity(art.task_id, user, "comment.resolved", { phase: art.phase, author: c.author_id });
       return next;
+    }),
+  },
+  // Diff de la rama contra la base, sin .flock/ (§6)
+  "/api/tasks/:id/diff": {
+    GET: authed(async ({ params }) => {
+      const t = mustTask(params.id!);
+      return { diff: await git.diff(t.worktree_path!, t.base_commit!) };
     }),
   },
   "/api/tasks/:id/artifacts/:phase/versions": {
