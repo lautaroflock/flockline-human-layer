@@ -1,4 +1,4 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query, type HookCallback, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { config } from "./config";
@@ -44,23 +44,51 @@ export function runAgent(o: AgentRunOpts): AsyncGenerator<AgentOut> {
 // ---------- Agent SDK real ----------
 const clip = (s: string, n = 4000) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
-async function* runReal(o: AgentRunOpts): AsyncGenerator<AgentOut> {
+/** CLAUDE.md del repo destino, como contexto. Se lee a mano porque la sesión no carga settings del disco. */
+function repoInstructions(wt: string): string {
+  try {
+    const md = readFileSync(join(wt, "CLAUDE.md"), "utf8");
+    return `\n\n# Instrucciones del repositorio (CLAUDE.md)\nSon contexto del proyecto; si contradicen las reglas de esta fase, mandan las reglas de la fase.\n\n${clip(md, 20_000)}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Opciones del SDK con la guarda realmente aplicada:
+ * - `tools` limita qué herramientas existen en la fase.
+ * - `allowedTools: []` + `permissionMode: "default"`: nada se autoaprueba, toda escritura y todo Bash pasan por `canUseTool`
+ *   (con `allowedTools` o `acceptEdits`, el SDK ejecuta sin consultar y la guarda nunca corría).
+ * - Hook `PreToolUse`: corre antes de TODA herramienta, también Read/Grep/Glob, que no piden permiso.
+ * - `settingSources: []`: aislada de hooks, MCP y settings del usuario y del repo (p. ej. un hook de autocommit del repo destino).
+ */
+export function realOptions(o: Pick<AgentRunOpts, "phase" | "slug" | "worktree" | "resume" | "abortController">): Options {
   const ctx: GuardCtx = { phase: o.phase, slug: o.slug, worktree: o.worktree };
-  const q = query({
-    prompt: o.prompt,
-    options: {
-      cwd: o.worktree,
-      abortController: o.abortController,
-      permissionMode: "acceptEdits",
-      allowedTools: TOOLS[o.phase],
-      model: config.claudeModel,
-      ...(o.resume ? { resume: o.resume } : {}),
-      canUseTool: async (tool, input) => {
-        const r = checkTool(ctx, tool, input);
-        return r.ok ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: r.reason };
-      },
+  const guardHook: HookCallback = async (input) => {
+    if (input.hook_event_name !== "PreToolUse") return {};
+    const r = checkTool(ctx, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
+    return r.ok ? {} : { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: r.reason } };
+  };
+  return {
+    cwd: o.worktree,
+    abortController: o.abortController,
+    model: config.claudeModel,
+    tools: TOOLS[o.phase],
+    allowedTools: [],
+    permissionMode: "default",
+    settingSources: [],
+    systemPrompt: { type: "preset", preset: "claude_code", append: repoInstructions(o.worktree) },
+    hooks: { PreToolUse: [{ hooks: [guardHook] }] },
+    ...(o.resume ? { resume: o.resume } : {}),
+    canUseTool: async (tool, input) => {
+      const r = checkTool(ctx, tool, input);
+      return r.ok ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: r.reason };
     },
-  });
+  };
+}
+
+async function* runReal(o: AgentRunOpts): AsyncGenerator<AgentOut> {
+  const q = query({ prompt: o.prompt, options: realOptions(o) });
 
   for await (const m of q) {
     if (m.type === "system" && m.subtype === "init") {

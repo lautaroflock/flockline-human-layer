@@ -1,8 +1,9 @@
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { resolveInside } from "./files";
 import type { PhaseName } from "../shared/types";
 
-// Guarda de herramientas (§5): el mismo chequeo lo usa canUseTool del SDK real y el agente mock.
+// Guarda de herramientas (§5). La usan el agente mock, el canUseTool del SDK real y su hook PreToolUse:
+// el hook corre antes de TODA herramienta (también las de solo lectura, que canUseTool nunca ve).
 export const TOOLS: Record<PhaseName, string[]> = {
   spec: [], // se escribe a mano: no corre agente
   research: ["Read", "Grep", "Glob", "Write"],
@@ -10,11 +11,20 @@ export const TOOLS: Record<PhaseName, string[]> = {
   implement: ["Read", "Grep", "Glob", "Write", "Edit", "Bash"],
 };
 
-const BASH_DENY: [RegExp, string][] = [
-  [/\bgit\s+push\b/i, "git push está prohibido"],
-  [/\brm\s+-[a-z]*r[a-z]*f?[a-z]*\s+\/(\s|$)/i, "rm -rf / está prohibido"],
-  [/\/mnt\//i, "acceder a /mnt/ está prohibido"],
-];
+/**
+ * Bash por lista blanca: el comando debe ser exactamente uno de estos (más argumentos simples).
+ * Una lista negra por regex se evade fácil (`git -c x push`, `sh -c "git pu""sh"`). Configurable con BASH_ALLOW.
+ */
+export const BASH_ALLOW = (
+  process.env.BASH_ALLOW ??
+  "bun test,bun run test,npm test,npm run test,pnpm test,yarn test,npx vitest run,npx jest,pytest,go test,cargo test,git status,git diff,git log,git show,ls"
+)
+  .split(",")
+  .map((c) => c.trim().replace(/\s+/g, " "))
+  .filter(Boolean);
+
+// Encadenar, redirigir, sustituir o expandir abre la puerta a cualquier otro comando
+const SHELL_META = /[;&|`$<>(){}\n\r\\*?!~]/;
 
 export interface GuardCtx {
   phase: PhaseName;
@@ -23,24 +33,56 @@ export interface GuardCtx {
 }
 export type GuardResult = { ok: true } | { ok: false; reason: string };
 
-export function checkTool(ctx: GuardCtx, tool: string, input: Record<string, unknown>): GuardResult {
-  if (!TOOLS[ctx.phase].includes(tool)) return { ok: false, reason: `La herramienta ${tool} no está permitida en ${ctx.phase}` };
+const deny = (reason: string): GuardResult => ({ ok: false, reason });
 
-  if (tool === "Write" || tool === "Edit") {
-    const target = String(input.file_path ?? input.path ?? "");
-    const full = resolveInside(ctx.worktree, target, { allowAbsolute: true });
-    if (!full) return { ok: false, reason: `Escritura fuera del worktree: ${target}` };
-    if (ctx.phase !== "implement") {
-      const allowed = resolve(join(ctx.worktree, ".flock", ctx.slug));
-      if (full !== allowed && !full.startsWith(allowed + "\\") && !full.startsWith(allowed + "/")) {
-        return { ok: false, reason: `En ${ctx.phase} solo se puede escribir en .flock/${ctx.slug}/` };
-      }
-    }
+/** Una ruta opcional que da el modelo (Read/Grep/Glob/Write/Edit) tiene que caer dentro del worktree. */
+function insideWorktree(ctx: GuardCtx, p: unknown): boolean {
+  if (p === undefined || p === null || p === "") return true; // sin ruta = el cwd, que es el worktree
+  return resolveInside(ctx.worktree, String(p), { allowAbsolute: true }) !== null;
+}
+
+function checkBash(command: string): GuardResult {
+  const cmd = command.trim().replace(/\s+/g, " ");
+  if (!cmd) return deny("Comando vacío");
+  if (SHELL_META.test(cmd)) return deny("No se permiten operadores de shell (;, &&, |, >, $, `, comodines…): ejecutá un comando por vez");
+  const base = BASH_ALLOW.find((a) => cmd === a || cmd.startsWith(`${a} `));
+  if (!base) return deny(`Comando no permitido: "${cmd}". Permitidos: ${BASH_ALLOW.join(", ")}`);
+  for (const arg of cmd.slice(base.length).split(" ").filter(Boolean)) {
+    if (arg.includes("..") || isAbsolute(arg) || /^[a-z]:/i.test(arg)) return deny(`Argumento fuera del worktree: ${arg}`);
+    if (/^--?(output|o)(=|$)/i.test(arg) || /^--(exec|upload-pack|receive-pack|config|git-dir|work-tree)/i.test(arg)) return deny(`Argumento no permitido: ${arg}`);
   }
+  return { ok: true };
+}
 
-  if (tool === "Bash") {
-    const cmd = String(input.command ?? "");
-    for (const [re, why] of BASH_DENY) if (re.test(cmd)) return { ok: false, reason: why };
+export function checkTool(ctx: GuardCtx, tool: string, input: Record<string, unknown>): GuardResult {
+  if (!TOOLS[ctx.phase].includes(tool)) return deny(`La herramienta ${tool} no está permitida en ${ctx.phase}`);
+
+  switch (tool) {
+    case "Read":
+      if (!insideWorktree(ctx, input.file_path)) return deny(`Lectura fuera del worktree: ${input.file_path}`);
+      break;
+    case "Grep":
+      if (!insideWorktree(ctx, input.path)) return deny(`Búsqueda fuera del worktree: ${input.path}`);
+      break;
+    case "Glob": {
+      if (!insideWorktree(ctx, input.path)) return deny(`Búsqueda fuera del worktree: ${input.path}`);
+      const pattern = String(input.pattern ?? "");
+      if (isAbsolute(pattern) || /^[a-z]:/i.test(pattern) || pattern.split(/[\\/]/).includes("..")) return deny(`Patrón fuera del worktree: ${pattern}`);
+      break;
+    }
+    case "Write":
+    case "Edit": {
+      const target = String(input.file_path ?? input.path ?? "");
+      const full = resolveInside(ctx.worktree, target, { allowAbsolute: true });
+      if (!full) return deny(`Escritura fuera del worktree: ${target}`);
+      if (ctx.phase !== "implement") {
+        const allowed = resolve(join(ctx.worktree, ".flock", ctx.slug));
+        if (full !== allowed && !full.startsWith(allowed + sep)) return deny(`En ${ctx.phase} solo se puede escribir en .flock/${ctx.slug}/`);
+      }
+      break;
+    }
+    case "Bash":
+      return checkBash(String(input.command ?? ""));
   }
   return { ok: true };
 }
