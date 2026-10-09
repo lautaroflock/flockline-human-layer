@@ -20,8 +20,9 @@ Cada hito del plan (§8 del spec "Clon web de HumanLayer") tiene su archivo. Se 
 | H13 | [H13-preguntas-design-structure.md](H13-preguntas-design-structure.md) (implementado) | 3 h |
 | H14 | [H14-diagramas-mockups.md](H14-diagramas-mockups.md) (implementado) | 2 h |
 | H15 | [H15-importar-jira-mock.md](H15-importar-jira-mock.md) (implementado, mock) | 1,5 h |
+| H16 | [H16-contexto-del-cambio.md](H16-contexto-del-cambio.md) (implementado) | 3 h |
 
-H12–H15 están cubiertos por las secciones del mismo nombre en `bun run e2e`.
+H12–H16 están cubiertos por las secciones del mismo nombre en `bun run e2e`.
 
 ## Decisiones de entorno (desvíos del spec)
 

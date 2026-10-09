@@ -60,6 +60,14 @@ Cada tarea elige su flujo al crearse (`src/shared/workflows.ts`):
 - **Diagramas y mockups**: los bloques ```mermaid se dibujan dentro de los artefactos y en la vista previa del editor. En Design (o Plan si el flujo no tiene Design) el agente puede dejar `mockup.html`, que se versiona con el artefacto y se muestra en un iframe aislado de la app.
 - **Tickets de Jira (mock)**: "Desde Jira" en el alta de tareas lista tres tickets de ejemplo (FLK-123/124/125). Completa título, slug y flujo sugerido, y arranca la spec desde el ticket. No hay conexión real: `TICKETS_MODE` distinto de `mock` impide arrancar.
 
+## Contexto del cambio (revisión)
+
+En **Diff → Contexto del cambio**, cada función tocada muestra:
+- **Llama a**: las definiciones que usa el código cambiado, con su cuerpo, para ver qué hacen sin abrir un editor.
+- **Se llama desde**: los lugares que la usan.
+
+Cada ítem se expande un nivel más hacia arriba o hacia abajo y tiene "Abrir en Archivos" en esa línea. Para TS/JS usa el LanguageService de TypeScript (el motor del LSP). Para otros lenguajes usa búsqueda de texto, marcada como aproximada.
+
 ## Spec manual y edición
 
 - La etapa **Spec** no corre agente: pestaña Spec → "Escribir spec" (plantilla precargada) → guardar → aprobar. La spec aprobada entra en los prompts de Research, Plan e Implement.

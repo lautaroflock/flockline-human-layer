@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { files } from "../api";
-import { run, useStore } from "../store";
+import { run, setState, useStore } from "../store";
 import type { CommitInfo, FileContent, TreeEntry } from "../../shared/types";
 
 interface Node {
@@ -36,6 +36,20 @@ export function FilesPanel() {
   const [closed, setClosed] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<string | null>(null);
   const [file, setFile] = useState<FileContent | null>(null);
+  const jump = useStore((s) => s.fileJump);
+  const [focusLine, setFocusLine] = useState<number | null>(null);
+
+  // Salto desde "Contexto del cambio" (H16): abrir el archivo en esa línea
+  useEffect(() => {
+    if (!jump) return;
+    setOpen(jump.path);
+    setFocusLine(jump.line);
+    setState({ fileJump: null });
+  }, [jump]);
+
+  useEffect(() => {
+    if (focusLine && file) document.getElementById(`L${focusLine}`)?.scrollIntoView({ block: "center" });
+  }, [file, focusLine]);
 
   useEffect(() => {
     run(Promise.all([files.tree(t.id), files.commits(t.id)]).then(([tr, cm]) => (setTree(tr), setCommits(cm))));
@@ -62,7 +76,7 @@ export function FilesPanel() {
           ];
         }
         return [
-          <div key={c.path} className={`tn ${open === c.path ? "on" : ""}`} style={{ paddingLeft: 8 + depth * 14 }} onClick={() => setOpen(c.path)} data-path={c.path}>
+          <div key={c.path} className={`tn ${open === c.path ? "on" : ""}`} style={{ paddingLeft: 8 + depth * 14 }} onClick={() => (setOpen(c.path), setFocusLine(null))} data-path={c.path}>
             📄 {c.name}
             {c.status && <span className={`st ${c.status}`}>{c.status}</span>}
           </div>,
@@ -88,7 +102,14 @@ export function FilesPanel() {
             <span style={{ color: "var(--mut)" }}>Archivo binario ({file.size} bytes)</span>
           ) : (
             <>
-              {file.content}
+              <div className="lines">
+                {(file.content ?? "").split(/\r?\n/).map((l, i) => (
+                  <div key={i} id={`L${i + 1}`} className={focusLine === i + 1 ? "hl" : ""}>
+                    <span className="ln">{i + 1}</span>
+                    {l || " "}
+                  </div>
+                ))}
+              </div>
               {file.truncated && <div style={{ color: "var(--warn)" }}>… recortado a 512 KB</div>}
             </>
           )}

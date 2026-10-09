@@ -596,6 +596,19 @@ async function main() {
   if (badCode === -1) badSrv.kill();
   check("TICKETS_MODE=jira → el servidor no arranca y explica el motivo", badCode !== 0 && badCode !== -1 && badErr.includes("no está implementado"), `code=${badCode}`);
 
+  // ───────── H16 contexto del cambio
+  section("H16 · contexto del cambio (hacia abajo y hacia arriba)");
+  const cx16 = await lau2.api<any>(`/api/tasks/${task.id}/context`);
+  const sym = (n: string) => cx16.data.symbols.find((s: any) => s.name === n);
+  check("/context agrupa por símbolo cambiado", cx16.status === 200 && !!sym("rateLimit") && !!sym("loginRoute") && cx16.data.engine.includes("typescript"), JSON.stringify(cx16.data.symbols?.map((s: any) => s.name)));
+  check("hacia abajo: loginRoute llama a compose y trae su cuerpo", sym("loginRoute")?.callees.some((c: any) => c.name === "compose" && c.file === "src/http.ts" && c.snippet.includes("export function compose")));
+  check("hacia arriba: rateLimit se llama desde auth.ts", sym("rateLimit")?.callers.some((c: any) => c.file === "src/routes/auth.ts"));
+  const compose16 = sym("loginRoute").callees.find((c: any) => c.name === "compose");
+  const ex16 = await lau2.api<any>(`/api/tasks/${task.id}/context/symbol?file=${encodeURIComponent(compose16.expand.file)}&line=${compose16.expand.line}&col=${compose16.expand.col}`);
+  check("expandir compose: un nivel más arriba", ex16.status === 200 && ex16.data.callers.some((c: any) => c.file === "src/routes/auth.ts"));
+  check("ruta fuera del worktree → 400", (await lau2.api(`/api/tasks/${task.id}/context/symbol?file=../../x.ts&line=1&col=1`)).status === 400);
+  check("posición inválida → 400", (await lau2.api(`/api/tasks/${task.id}/context/symbol?file=src/http.ts&line=0&col=1`)).status === 400);
+
   await stopServer();
   rmSync(tmp, { recursive: true, force: true });
   console.log(failures === 0 ? "\nTODO OK" : `\n${failures} verificación(es) fallaron`);

@@ -20,9 +20,10 @@ export interface State {
   draft: { phase: string; quote: string } | null; // texto seleccionado esperando comentario
   newTaskOpen: boolean;
   viewSession: string | null; // sesión elegida en el log (null = la última)
+  fileJump: { path: string; line: number } | null; // pedido de abrir un archivo en una línea (H16)
 }
 
-let state: State = { user: null, users: [], tasks: [], activeId: null, detail: null, events: {}, tab: "research", version: {}, wsOk: false, error: null, worktreeTick: 0, draft: null, newTaskOpen: false, viewSession: null };
+let state: State = { user: null, users: [], tasks: [], activeId: null, detail: null, events: {}, tab: "research", version: {}, wsOk: false, error: null, worktreeTick: 0, draft: null, newTaskOpen: false, viewSession: null, fileJump: null };
 const listeners = new Set<() => void>();
 
 export const getState = () => state;

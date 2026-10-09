@@ -120,3 +120,18 @@ button kbd{background:rgba(0,0,0,.25);border-color:rgba(0,0,0,.35);color:inherit
 .doc input[type=checkbox]{width:auto;margin:0 6px 0 0;vertical-align:middle}
 .doc li.task-list-item{list-style:none;margin-left:-18px}
 .tabs{overflow-x:auto;scrollbar-width:thin}
+/* H16 contexto del cambio */
+.ctx-card{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px;background:var(--panel)}
+.ctx-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.ctx-head .st{font-size:11px;font-weight:700}.st.M{color:var(--warn)}.st.A{color:var(--ok)}
+.ctx-sec{margin:6px 0 2px}.ctx-sec>summary{cursor:pointer;font-weight:600;font-size:13px}
+.ctx-ref{border-left:2px solid var(--line);padding:4px 0 4px 10px;margin:6px 0 6px 4px}
+.ctx-ref-head{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:13px}
+.ctx-nested{margin-left:10px;border-left:1px dashed var(--line);padding-left:8px}
+.sig{color:var(--mut);white-space:pre;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+a.link{color:var(--acc);cursor:pointer;text-decoration:none}a.link:hover{text-decoration:underline}
+pre.snippet{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 0;margin:4px 0;overflow:auto;font-size:12px}
+pre.snippet>div,.lines>div{padding:0 8px;white-space:pre}
+pre.snippet>div.hl,.lines>div.hl{background:#e5b45422;box-shadow:inset 2px 0 0 var(--warn)}
+.ln{display:inline-block;width:3.2em;color:var(--mut);text-align:right;margin-right:10px;user-select:none;opacity:.7}
+.fv .lines{white-space:normal}

@@ -7,6 +7,7 @@ import { authed, bodyOf, HttpError } from "./http";
 import { presence } from "./presence";
 import * as git from "./git";
 import { readSafe } from "./files";
+import { changeContext, symbolContext } from "./codeintel";
 import { commentView, createTask, logActivity, mustTask, taskDetail } from "./service";
 import type { Comment } from "../shared/types";
 
@@ -164,6 +165,14 @@ export const routes = {
       const t = mustTask(params.id!);
       const path = new URL(req.url).searchParams.get("path") ?? "";
       return readSafe(t.worktree_path!, path);
+    }),
+  },
+  // Contexto del cambio (H16): qué llama lo que cambió y desde dónde se lo llama
+  "/api/tasks/:id/context": { GET: authed(({ params }) => changeContext(mustTask(params.id!))) },
+  "/api/tasks/:id/context/symbol": {
+    GET: authed(({ req, params }) => {
+      const q = new URL(req.url).searchParams;
+      return symbolContext(mustTask(params.id!), { file: q.get("file") ?? "", line: Number(q.get("line")), col: Number(q.get("col")) });
     }),
   },
   "/api/tasks/:id/commits": {

@@ -59,6 +59,29 @@ export async function diff(wt: string, baseCommit: string): Promise<string> {
   return r.out;
 }
 
+/** Líneas nuevas o modificadas (lado nuevo) por archivo, contra la base y sin .flock/ (H16). */
+export async function changedLines(wt: string, baseCommit: string): Promise<Map<string, { status: "M" | "A"; lines: Set<number> }>> {
+  await stageAll(wt);
+  const status = await changedFiles(wt, baseCommit);
+  const r = await git(wt, ["diff", "--cached", "-U0", "-M", "--no-color", baseCommit, "--", ".", ":(exclude).flock"]);
+  const out = new Map<string, { status: "M" | "A"; lines: Set<number> }>();
+  let file: string | null = null;
+  for (const line of r.out.split("\n")) {
+    if (line.startsWith("+++ ")) {
+      file = line.startsWith("+++ b/") ? line.slice(6) : null;
+      if (file) out.set(file, { status: status.get(file) ?? "M", lines: new Set() });
+    } else if (file && line.startsWith("@@")) {
+      const m = /\+(\d+)(?:,(\d+))?/.exec(line);
+      if (!m) continue;
+      const start = Number(m[1]);
+      const count = m[2] === undefined ? 1 : Number(m[2]);
+      for (let i = 0; i < count; i++) out.get(file)!.lines.add(start + i);
+    }
+  }
+  for (const [f, v] of out) if (v.lines.size === 0) out.delete(f); // solo borrados
+  return out;
+}
+
 export async function changedFiles(wt: string, baseCommit: string): Promise<Map<string, "M" | "A">> {
   await stageAll(wt);
   const r = await git(wt, ["diff", "--cached", "--name-status", "-M", baseCommit]);

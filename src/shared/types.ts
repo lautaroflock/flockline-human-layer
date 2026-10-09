@@ -188,3 +188,44 @@ export type ClientMessage =
   | { type: "subscribe"; taskId: string }
   | { type: "unsubscribe"; taskId: string }
   | { type: "presence"; taskId: string; tab: Tab };
+
+// ---- Contexto del cambio (H16) ----
+export interface CodeLoc {
+  file: string; // relativa al worktree, con "/"
+  line: number; // 1-based
+  col: number; // 1-based
+}
+
+/** Una definición (hacia abajo) o un lugar de llamada (hacia arriba), con su código. */
+export interface CodeRef extends CodeLoc {
+  name: string;
+  kind: string;
+  snippet: string;
+  snippetStart: number; // línea de la primera línea del snippet
+  highlight: number[]; // líneas a resaltar dentro del snippet
+  changed: boolean; // cae dentro del diff de la tarea
+  expand: CodeLoc | null; // dónde pedir el siguiente nivel (el nombre del símbolo)
+}
+
+export interface ChangedSymbol extends CodeLoc {
+  name: string;
+  kind: string;
+  status: "M" | "A";
+  changedLines: number[];
+  precision: "lsp" | "text";
+  callees: CodeRef[];
+  callers: CodeRef[];
+}
+
+export interface ChangeContext {
+  engine: string;
+  symbols: ChangedSymbol[];
+  truncated: boolean;
+}
+
+export interface SymbolContext {
+  symbol: CodeRef;
+  precision: "lsp" | "text";
+  callees: CodeRef[];
+  callers: CodeRef[];
+}
