@@ -135,3 +135,12 @@ pre.snippet>div,.lines>div{padding:0 8px;white-space:pre}
 pre.snippet>div.hl,.lines>div.hl{background:#e5b45422;box-shadow:inset 2px 0 0 var(--warn)}
 .ln{display:inline-block;width:3.2em;color:var(--mut);text-align:right;margin-right:10px;user-select:none;opacity:.7}
 .fv .lines{white-space:normal}
+/* H17 proyectos */
+.projects{margin-bottom:12px;border-bottom:1px solid var(--line);padding-bottom:10px}
+.proj-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.proj{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:6px;cursor:pointer;font-size:13px}
+.proj:hover{background:var(--panel2)}.proj.sel{background:var(--panel2);outline:1px solid var(--acc)}
+.proj .pname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proj small{color:var(--mut);font-size:11px}.proj .badge{margin:0;cursor:pointer}
+.proj .x{padding:0 6px;opacity:.5}.proj:hover .x{opacity:1}
+.pmini{font-size:11px;color:var(--mut)}

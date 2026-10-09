@@ -17,7 +17,7 @@ const FLOCK_EXT = [".md", ".html", ".svg", ".mmd"];
  */
 export const BASH_ALLOW = (
   process.env.BASH_ALLOW ??
-  "bun test,bun run test,npm test,npm run test,pnpm test,yarn test,npx vitest run,npx jest,pytest,go test,cargo test,git status,git diff,git log,git show,ls"
+  "bun test,bun run test,npm test,npm run test,node --test,pnpm test,yarn test,npx vitest run,npx jest,pytest,go test,cargo test,git status,git diff,git log,git show,ls"
 )
   .split(",")
   .map((c) => c.trim().replace(/\s+/g, " "))

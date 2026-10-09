@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { config } from "./config";
-import type { ActivityEntry, AgentEventRow, Artifact, ArtifactFileMeta, Comment, PhaseName, Question, Session, Task, User } from "../shared/types";
+import type { ActivityEntry, AgentEventRow, Artifact, ArtifactFileMeta, Comment, PhaseName, Project, Question, Session, Task, User } from "../shared/types";
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 export const db = new Database(config.dbPath, { create: true });
@@ -119,6 +119,17 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE tasks ADD COLUMN ticket_source TEXT;
    ALTER TABLE tasks ADD COLUMN ticket_key TEXT;
    ALTER TABLE tasks ADD COLUMN ticket_url TEXT;`,
+  // v7: proyectos (H17)
+  `CREATE TABLE projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    repo_path TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    agent_mode TEXT NOT NULL DEFAULT 'real',
+    archived INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT REFERENCES users(id),
+    created_at TEXT NOT NULL
+  );
+   ALTER TABLE tasks ADD COLUMN project_id TEXT REFERENCES projects(id);`,
 ];
 
 function migrate() {
@@ -155,8 +166,8 @@ export const tasks = {
   slugExists: (slug: string) => !!db.query("SELECT 1 FROM tasks WHERE slug = ?").get(slug),
   insert(t: Task) {
     db.query(
-      `INSERT INTO tasks (id, slug, title, description, repo_path, worktree_path, branch, base_branch, base_commit, phase, status, workflow, ticket_source, ticket_key, ticket_url, created_by, created_at, updated_at)
-       VALUES ($id, $slug, $title, $description, $repo_path, $worktree_path, $branch, $base_branch, $base_commit, $phase, $status, $workflow, $ticket_source, $ticket_key, $ticket_url, $created_by, $created_at, $updated_at)`,
+      `INSERT INTO tasks (id, slug, title, description, repo_path, worktree_path, branch, base_branch, base_commit, phase, status, workflow, project_id, ticket_source, ticket_key, ticket_url, created_by, created_at, updated_at)
+       VALUES ($id, $slug, $title, $description, $repo_path, $worktree_path, $branch, $base_branch, $base_commit, $phase, $status, $workflow, $project_id, $ticket_source, $ticket_key, $ticket_url, $created_by, $created_at, $updated_at)`,
     ).run(Object.fromEntries(Object.entries(t).map(([k, v]) => [`$${k}`, v])) as never);
   },
   update(id: string, patch: Partial<Pick<Task, "phase" | "status" | "workflow">>): Task {
@@ -166,6 +177,36 @@ export const tasks = {
     return next;
   },
 };
+
+export const projects = {
+  byId: (id: string) => db.query("SELECT * FROM projects WHERE id = ?").get(id) as Project | null,
+  byPath: (repoPath: string) => db.query("SELECT * FROM projects WHERE repo_path = ? COLLATE NOCASE").get(repoPath) as Project | null,
+  all: (includeArchived = false) =>
+    db.query(
+      `SELECT p.*, (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS task_count,
+              (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.phase <> 'done' AND t.status <> 'cancelled') AS active_count
+       FROM projects p ${includeArchived ? "" : "WHERE p.archived = 0"} ORDER BY p.created_at`,
+    ).all() as Project[],
+  create(p: { name: string; repo_path: string; agent_mode: Project["agent_mode"]; created_by: string | null }): Project {
+    const row: Project = { id: uuid(), name: p.name, repo_path: p.repo_path, agent_mode: p.agent_mode, archived: 0, created_by: p.created_by, created_at: now() };
+    db.query("INSERT INTO projects (id, name, repo_path, agent_mode, archived, created_by, created_at) VALUES (?, ?, ?, ?, 0, ?, ?)").run(row.id, row.name, row.repo_path, row.agent_mode, row.created_by, row.created_at);
+    return row;
+  },
+  update(id: string, patch: Partial<Pick<Project, "name" | "agent_mode" | "archived">>): Project {
+    const next = { ...projects.byId(id)!, ...patch };
+    db.query("UPDATE projects SET name = ?, agent_mode = ?, archived = ? WHERE id = ?").run(next.name, next.agent_mode, next.archived, id);
+    return next;
+  },
+};
+
+/** Tareas anteriores a H17: un proyecto por cada repo distinto (idempotente). */
+export function backfillProjects(defaultMode: Project["agent_mode"]) {
+  const rows = db.query("SELECT DISTINCT repo_path FROM tasks WHERE project_id IS NULL").all() as { repo_path: string }[];
+  for (const { repo_path } of rows) {
+    const p = projects.byPath(repo_path) ?? projects.create({ name: repo_path.split(/[\\/]/).filter(Boolean).pop() ?? repo_path, repo_path, agent_mode: defaultMode, created_by: null });
+    db.query("UPDATE tasks SET project_id = ? WHERE project_id IS NULL AND repo_path = ? COLLATE NOCASE").run(p.id, repo_path);
+  }
+}
 
 export const questions = {
   byId: (id: string) => db.query("SELECT * FROM questions WHERE id = ?").get(id) as Question | null,

@@ -1,17 +1,22 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { run, selectTask, setState, useStore } from "../store";
+import { OpenProjectModal, ProjectBar } from "./Projects";
 import { PHASE_DEFS, WORKFLOWS, type WorkflowId } from "../../shared/workflows";
 import type { Task, Ticket } from "../../shared/types";
 
 export function TaskList() {
-  const tasks = useStore((s) => s.tasks);
+  const all = useStore((s) => s.tasks);
+  const projectId = useStore((s) => s.projectId);
+  const projects = useStore((s) => s.projects);
+  const tasks = projectId ? all.filter((t) => t.project_id === projectId) : all;
   const activeId = useStore((s) => s.activeId);
   const modal = useStore((s) => s.newTaskOpen);
   const setModal = (open: boolean) => setState({ newTaskOpen: open });
 
   return (
     <aside className="left">
+      <ProjectBar />
       <button className="pri" style={{ width: "100%" }} onClick={() => setModal(true)} data-testid="new-task">
         + Nueva tarea <kbd>N</kbd>
       </button>
@@ -19,6 +24,7 @@ export function TaskList() {
       {tasks.map((t) => (
         <div key={t.id} className={`task ${t.id === activeId ? "sel" : ""}`} onClick={() => run(selectTask(t.id))}>
           <div className="t">{t.title}</div>
+          {!projectId && <div className="pmini">{projects.find((p) => p.id === t.project_id)?.name ?? ""}</div>}
           {t.ticket_key && <TicketChip task={t} />}
           <span className={`badge ${t.phase === "done" ? "done" : t.status}`}>{t.phase === "done" ? "done" : t.status}</span>
           <span className="badge">{t.phase === "done" || t.phase === "freeform" ? WORKFLOWS[t.workflow]?.label : PHASE_DEFS[t.phase]?.label ?? t.phase}</span>
@@ -52,7 +58,10 @@ export function NewTaskModal({ onClose }: { onClose: () => void }) {
   const [description, setDescription] = useState("");
   const [workflow, setWorkflow] = useState<WorkflowId>("rpi");
   const [ticket, setTicket] = useState<Ticket | null>(null);
-  const [repoPath, setRepoPath] = useState(localStorage.getItem("flockline.repo") ?? "");
+  const projects = useStore((s) => s.projects);
+  const current = useStore((s) => s.projectId);
+  const [projectId, setProjectId] = useState<string>(current ?? projects[0]?.id ?? "");
+  const [openProject, setOpenProject] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -67,9 +76,8 @@ export function NewTaskModal({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setErr("");
     try {
-      const body = { title, description, repoPath, workflow, ...(source === "jira" && ticket ? { ticketKey: ticket.key } : {}) };
+      const body = { title, description, projectId, workflow, ...(source === "jira" && ticket ? { ticketKey: ticket.key } : {}) };
       const task = await api<Task>("/api/tasks", { body });
-      localStorage.setItem("flockline.repo", repoPath);
       onClose();
       await selectTask(task.id);
     } catch (e) {
@@ -105,12 +113,25 @@ export function NewTaskModal({ onClose }: { onClose: () => void }) {
         <div style={{ color: "var(--mut)", fontSize: 12, marginTop: 4 }}>
           {wf.description} {wf.phases.length > 0 && <>Fases: {wf.phases.map((p) => PHASE_DEFS[p].label).join(" → ")}.</>}
         </div>
-        <label>Ruta del repo (local)</label>
-        <input value={repoPath} onChange={(e) => setRepoPath(e.target.value)} placeholder="~/.flockline/demo-api" />
+        <label>Proyecto</label>
+        {projects.length === 0 ? (
+          <div style={{ fontSize: 12, color: "var(--warn)" }}>
+            No hay proyectos abiertos. <button className="mini" onClick={() => setOpenProject(true)}>Abrir proyecto</button>
+          </div>
+        ) : (
+          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} data-testid="task-project">
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} · {p.agent_mode === "real" ? "Claude (real)" : "mock"}
+              </option>
+            ))}
+          </select>
+        )}
+        {openProject && <OpenProjectModal onClose={() => setOpenProject(false)} />}
         {err && <p style={{ color: "var(--err)", margin: "8px 0 0" }}>{err}</p>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
           <button onClick={onClose}>Cancelar</button>
-          <button className="pri" disabled={busy || !title.trim() || !repoPath.trim() || (source === "jira" && !ticket)} onClick={submit}>
+          <button className="pri" disabled={busy || !title.trim() || !projectId || (source === "jira" && !ticket)} onClick={submit}>
             {busy ? "Creando…" : "Crear"}
           </button>
         </div>

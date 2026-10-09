@@ -20,6 +20,8 @@ export interface AgentRunOpts {
   comments: { quote: string; body: string; author: string }[];
   /** Pedido libre de una sesión Freeform (el mock lo registra). */
   userPrompt?: string;
+  /** Modo del proyecto de la tarea (H17); si falta, el global. */
+  mode?: "real" | "mock";
 }
 
 /** Evento normalizado del agente; `changed` indica que el worktree se modificó (para worktree.changed). */
@@ -33,7 +35,7 @@ export interface AgentOut {
 export const artifactRel = (phase: PhaseName, slug: string) => `.flock/${slug}/${PHASE_DEFS[phase].artifact}`;
 
 export function runAgent(o: AgentRunOpts): AsyncGenerator<AgentOut> {
-  return config.agentMode === "real" ? runReal(o) : runMock(o);
+  return (o.mode ?? config.agentMode) === "real" ? runReal(o) : runMock(o);
 }
 
 // ---------- Agent SDK real ----------

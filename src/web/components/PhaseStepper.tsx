@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { reloadDetail, run, useStore } from "../store";
 import { PHASE_DEFS, phasesOf, WORKFLOWS, type PhaseName } from "../../shared/workflows";
+import { AgentBadge } from "./Projects";
 
 export const LABEL = (p: PhaseName) => PHASE_DEFS[p].label;
 
@@ -41,6 +42,7 @@ export function PhaseStepper() {
 
   return (
     <div className="stepper" data-testid="stepper">
+      <AgentBadge />
       <span className="badge wf" title={WORKFLOWS[task.workflow].description}>{WORKFLOWS[task.workflow].label}</span>
       {flow.map((p, i) => {
         const st = cancelled && p === task.phase ? "cancelled" : phaseStatus(flow, task.phase, task.status, p);
@@ -123,6 +125,7 @@ function FreeformBar() {
 
   return (
     <div className="stepper" data-testid="freeform">
+      <AgentBadge />
       <span className="badge wf" title={WORKFLOWS.freeform.description}>Freeform</span>
       <span style={{ color: "var(--mut)", fontSize: 12 }}>
         {detail.sessions.length} sesión(es){closed ? " · cerrada" : cancelled ? " · cancelada" : ""}

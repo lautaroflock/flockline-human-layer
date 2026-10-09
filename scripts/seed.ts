@@ -17,9 +17,11 @@ const post = async (path: string, body: unknown, token?: string) => {
 };
 
 const { token } = await post("/api/session", { name });
+// La demo usa el agente mock (guion para demo-api); los proyectos reales se abren con el agente Claude
+const project = await post("/api/projects", { repoPath: repo, name: "demo-api", agentMode: "mock" }, token);
 const task = await post(
   "/api/tasks",
-  { title: "Agregar rate limiting por IP al endpoint /login", description: "Limitar a 5 intentos por minuto por IP; responder 429 con Retry-After.", repoPath: repo },
+  { title: "Agregar rate limiting por IP al endpoint /login", description: "Limitar a 5 intentos por minuto por IP; responder 429 con Retry-After.", projectId: project.id },
   token,
 );
 console.log(`Tarea creada: ${task.title}\nRama: ${task.branch}\nWorktree: ${task.worktree_path}\nAbrí ${base}/?task=${task.id}`);

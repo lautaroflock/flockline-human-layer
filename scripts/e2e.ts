@@ -609,6 +609,48 @@ async function main() {
   check("ruta fuera del worktree → 400", (await lau2.api(`/api/tasks/${task.id}/context/symbol?file=../../x.ts&line=1&col=1`)).status === 400);
   check("posición inválida → 400", (await lau2.api(`/api/tasks/${task.id}/context/symbol?file=src/http.ts&line=0&col=1`)).status === 400);
 
+  // ───────── H17 proyectos
+  section("H17 · proyectos: abrir uno o varios repos");
+  const pj = await lau2.api<any[]>("/api/projects");
+  check("las tareas creadas por ruta quedaron en un proyecto (compatibilidad)", pj.status === 200 && pj.data.some((p) => p.repo_path.toLowerCase() === git(repo, "rev-parse", "--show-toplevel").toLowerCase() && p.task_count > 0));
+  const repo2 = await ensureDemoRepo(join(tmp, "otro-repo"));
+  const prj = await lau2.api<any>("/api/projects", "POST", { repoPath: repo2, name: "Otro repo", agentMode: "mock" });
+  check("abrir un segundo proyecto", prj.status === 200 && prj.data.name === "Otro repo" && prj.data.agent_mode === "mock");
+  const prjB = await ana2.api<any>("/api/projects", "POST", { repoPath: repo2 });
+  check("abrir el mismo repo devuelve el mismo proyecto", prjB.data.id === prj.data.id);
+  check("ruta inválida → 400", (await lau2.api("/api/projects", "POST", { repoPath: join(tmp, "no-existe") })).status === 400);
+  check("modo de agente inválido → 400", (await lau2.api("/api/projects", "POST", { repoPath: repo2, agentMode: "x" })).status === 400);
+  const t2 = await lau2.api<Task>("/api/tasks", "POST", { title: "Tarea del otro repo", description: "", projectId: prj.data.id });
+  check("crear tarea por projectId", t2.status === 200 && t2.data.project_id === prj.data.id && t2.data.repo_path.toLowerCase().endsWith("otro-repo"));
+  const allTasks = (await lau2.api<Task[]>("/api/tasks")).data;
+  check("cada tarea sabe a qué proyecto pertenece", allTasks.every((t) => !!t.project_id) && allTasks.filter((t) => t.project_id === prj.data.id).length === 1);
+  check("projectId inexistente → 404", (await lau2.api("/api/tasks", "POST", { title: "x", description: "", projectId: "nope" })).status === 404);
+  check("sin proyecto ni ruta → 400", (await lau2.api("/api/tasks", "POST", { title: "x", description: "" })).status === 400);
+  // el modo del proyecto manda: este server corre con AGENT_MODE=mock; el proyecto en mock usa el mock
+  lau2.ws.send(JSON.stringify({ type: "subscribe", taskId: t2.data.id }));
+  await lau2.api(`/api/tasks/${t2.data.id}/phases/spec/artifact`, "PUT", { content: SPEC, baseVersion: 0 });
+  await ana2.api(`/api/tasks/${t2.data.id}/phases/spec/approve`, "POST");
+  await lau2.api(`/api/tasks/${t2.data.id}/phases/research/run`, "POST");
+  await phaseDone(lau2, t2.data.id, "research", 1);
+  const t2s = (await lau2.api<TaskDetail>(`/api/tasks/${t2.data.id}`)).data.sessions[0]!;
+  const t2ev = (await lau2.api<any[]>(`/api/sessions/${t2s.id}/events`)).data.map((e) => JSON.parse(e.payload));
+  check("el proyecto en mock corre con el agente mock", t2ev.some((p) => p.model === "mock"));
+  const renamed = await lau2.api<any>(`/api/projects/${prj.data.id}`, "PATCH", { name: "Repo B", agentMode: "real" });
+  check("renombrar y cambiar el modo del proyecto", renamed.status === 200 && renamed.data.name === "Repo B" && renamed.data.agent_mode === "real");
+  await lau2.api(`/api/projects/${prj.data.id}`, "PATCH", { agentMode: "mock" });
+  const closed = await lau2.api<any>(`/api/projects/${prj.data.id}`, "PATCH", { archived: true });
+  check("cerrar proyecto lo saca de la lista sin borrar tareas", closed.status === 200 && !(await lau2.api<any[]>("/api/projects")).data.some((p) => p.id === prj.data.id) && (await lau2.api<Task[]>("/api/tasks")).data.some((t) => t.id === t2.data.id));
+  check("no se crean tareas en un proyecto cerrado → 409", (await lau2.api("/api/tasks", "POST", { title: "x", description: "", projectId: prj.data.id })).status === 409);
+  const reopened = await lau2.api<any>("/api/projects", "POST", { repoPath: repo2 });
+  check("volver a abrir la ruta lo reactiva", reopened.data.id === prj.data.id && reopened.data.archived === 0);
+  const slowP = (await lau2.api<Task>("/api/tasks", "POST", { title: "Ocupado [lento]", description: "", projectId: prj.data.id })).data;
+  await lau2.api(`/api/tasks/${slowP.id}/phases/spec/artifact`, "PUT", { content: SPEC, baseVersion: 0 });
+  await ana2.api(`/api/tasks/${slowP.id}/phases/spec/approve`, "POST");
+  await lau2.api(`/api/tasks/${slowP.id}/phases/research/run`, "POST");
+  await sleep(200);
+  check("cerrar un proyecto con una sesión corriendo → 409", (await lau2.api(`/api/projects/${prj.data.id}`, "PATCH", { archived: true })).status === 409);
+  await lau2.api(`/api/tasks/${slowP.id}/cancel`, "POST");
+
   await stopServer();
   rmSync(tmp, { recursive: true, force: true });
   console.log(failures === 0 ? "\nTODO OK" : `\n${failures} verificación(es) fallaron`);

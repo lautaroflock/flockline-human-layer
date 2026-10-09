@@ -11,7 +11,7 @@ export const config = {
   publicUrl: env.PUBLIC_URL ?? "",
   dbPath: env.DB_PATH ?? join(root, "data", "flockline.db"),
   worktreesDir: env.WORKTREES_DIR ?? join(homedir(), ".flockline", "worktrees"),
-  agentMode: (env.AGENT_MODE ?? "mock") as "mock" | "real",
+  agentMode: (env.AGENT_MODE === "mock" ? "mock" : "real") as "mock" | "real", // default real (H17); el e2e y la demo piden mock
   claudeModel: env.CLAUDE_MODEL || undefined,
   mockDelayMs: Number(env.MOCK_DELAY_MS ?? 450),
   sessionSecret: env.SESSION_SECRET ?? "flockline-dev-secret-cambiar",

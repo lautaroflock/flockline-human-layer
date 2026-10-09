@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { AgentEventRow, ServerMessage, Tab, Task, TaskDetail, User } from "../shared/types";
+import type { AgentEventRow, Project, ServerMessage, Tab, Task, TaskDetail, User } from "../shared/types";
 import { api, getToken, TOKEN_KEY } from "./api";
 import { isPhase, PHASE_DEFS, phasesOf } from "../shared/workflows";
 
@@ -21,9 +21,11 @@ export interface State {
   newTaskOpen: boolean;
   viewSession: string | null; // sesión elegida en el log (null = la última)
   fileJump: { path: string; line: number } | null; // pedido de abrir un archivo en una línea (H16)
+  projects: Project[];
+  projectId: string | null; // proyecto elegido en la barra (null = todos) (H17)
 }
 
-let state: State = { user: null, users: [], tasks: [], activeId: null, detail: null, events: {}, tab: "research", version: {}, wsOk: false, error: null, worktreeTick: 0, draft: null, newTaskOpen: false, viewSession: null, fileJump: null };
+let state: State = { user: null, users: [], tasks: [], activeId: null, detail: null, events: {}, tab: "research", version: {}, wsOk: false, error: null, worktreeTick: 0, draft: null, newTaskOpen: false, viewSession: null, fileJump: null, projects: [], projectId: readProject() };
 const listeners = new Set<() => void>();
 
 export const getState = () => state;
@@ -55,6 +57,27 @@ export function logout() {
     localStorage.removeItem(TOKEN_KEY);
   } catch {}
   location.reload();
+}
+
+function readProject(): string | null {
+  try {
+    return localStorage.getItem("flockline.project");
+  } catch {
+    return null;
+  }
+}
+
+export async function loadProjects() {
+  const projects = await api<Project[]>("/api/projects");
+  setState((s) => ({ projects, projectId: s.projectId && projects.some((p) => p.id === s.projectId) ? s.projectId : null }));
+}
+
+export function setProject(id: string | null) {
+  setState({ projectId: id });
+  try {
+    if (id) localStorage.setItem("flockline.project", id);
+    else localStorage.removeItem("flockline.project");
+  } catch {}
 }
 
 export async function loadTasks() {
@@ -115,7 +138,7 @@ export function connectWs() {
     setState({ wsOk: true });
     if (state.activeId) ws!.send(JSON.stringify({ type: "subscribe", taskId: state.activeId }));
     for (const m of outbox.splice(0)) ws!.send(m);
-    if (reconnect) run(Promise.all([loadTasks(), loadUsers(), reloadDetail()])); // §7: al reconectar, recargar la tarea activa
+    if (reconnect) run(Promise.all([loadTasks(), loadUsers(), loadProjects(), reloadDetail()])); // §7: al reconectar, recargar la tarea activa
   };
   ws.onmessage = (e) => applyMessage(JSON.parse(e.data) as ServerMessage);
   ws.onclose = () => {
@@ -131,6 +154,10 @@ function upsert<T extends { id: string }>(list: T[], item: T) {
 function applyMessage(m: ServerMessage) {
   if (m.type === "tasks.changed") {
     run(Promise.all([loadTasks(), loadUsers()]));
+    return;
+  }
+  if (m.type === "projects.changed") {
+    run(loadProjects());
     return;
   }
   setState((s) => {
@@ -190,7 +217,7 @@ export async function boot() {
     return;
   }
   connectWs();
-  await Promise.all([loadTasks(), loadUsers()]);
+  await Promise.all([loadTasks(), loadUsers(), loadProjects()]);
   const id = new URLSearchParams(location.search).get("task");
   if (id) await selectTask(id);
 }

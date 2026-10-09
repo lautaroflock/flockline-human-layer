@@ -3,7 +3,7 @@ import index from "../web/index.html";
 import { issueToken, userFromRequest } from "./auth";
 import { bus } from "./bus";
 import { config } from "./config";
-import { users } from "./db";
+import { backfillProjects, users } from "./db";
 import { fail, json } from "./http";
 import { recoverOnBoot } from "./orchestrator";
 import { presence } from "./presence";
@@ -63,5 +63,6 @@ const server = Bun.serve<{ user: User }>({
 });
 
 recoverOnBoot();
+backfillProjects(config.agentMode);
 bus.attach(server as never);
-console.log(`Flockline en http://${config.host}:${config.port}  (agente: ${config.agentMode})`);
+console.log(`Flockline en http://${config.host}:${config.port}  (agente por defecto de proyectos nuevos: ${config.agentMode})`);

@@ -1,4 +1,4 @@
-import { activity, artifactFiles, artifacts, comments, events, now, sessions, tasks, users, uuid } from "./db";
+import { activity, artifactFiles, artifacts, comments, projects, sessions as sessionsRepo, events, now, sessions, tasks, users, uuid } from "./db";
 import { bus } from "./bus";
 import { abortSession, answerQuestion, approvePhase, cancelTask, closeTask, reopenTask, revisePhase, rewindTask, runPhase, saveArtifact, setWorkflow, startFreeSession } from "./orchestrator";
 import { tickets } from "./integrations/tickets";
@@ -8,7 +8,7 @@ import { presence } from "./presence";
 import * as git from "./git";
 import { readSafe } from "./files";
 import { changeContext, symbolContext } from "./codeintel";
-import { commentView, createTask, logActivity, mustTask, taskDetail } from "./service";
+import { commentView, createTask, logActivity, mustTask, openProject, publishProjects, taskDetail } from "./service";
 import type { Comment } from "../shared/types";
 
 // REST: comandos y lecturas (§6). Las rutas de fases, comentarios y archivos se suman en sus hitos.
@@ -25,8 +25,41 @@ export const routes = {
   "/api/tasks": {
     GET: authed(() => tasks.all()),
     POST: authed(async ({ req, user }) => {
-      const body = await bodyOf<{ title: string; description: string; repoPath: string; workflow: string; ticketKey: string }>(req);
-      return createTask({ title: body.title ?? "", description: body.description ?? "", repoPath: body.repoPath ?? "", workflow: body.workflow, ticketKey: body.ticketKey }, user);
+      const body = await bodyOf<{ title: string; description: string; repoPath: string; projectId: string; workflow: string; ticketKey: string }>(req);
+      return createTask({ title: body.title ?? "", description: body.description ?? "", repoPath: body.repoPath ?? "", projectId: body.projectId, workflow: body.workflow, ticketKey: body.ticketKey }, user);
+    }),
+  },
+
+  // Proyectos (H17): uno o varios repos abiertos
+  "/api/projects": {
+    GET: authed(({ req }) => projects.all(new URL(req.url).searchParams.get("all") === "1")),
+    POST: authed(async ({ req, user }) => {
+      const body = await bodyOf<{ repoPath: string; name: string; agentMode: string }>(req);
+      return openProject({ repoPath: body.repoPath ?? "", name: body.name, agentMode: body.agentMode }, user);
+    }),
+  },
+  "/api/projects/:id": {
+    PATCH: authed(async ({ req, params }) => {
+      const p = projects.byId(params.id!);
+      if (!p) throw new HttpError(404, "Proyecto no encontrado");
+      const body = await bodyOf<{ name: string; agentMode: string; archived: boolean }>(req);
+      const patch: Parameters<typeof projects.update>[1] = {};
+      if (body.name !== undefined) {
+        if (!body.name.trim()) throw new HttpError(400, "El nombre no puede estar vacío");
+        patch.name = body.name.trim().slice(0, 60);
+      }
+      if (body.agentMode !== undefined) {
+        if (body.agentMode !== "real" && body.agentMode !== "mock") throw new HttpError(400, "Modo de agente inválido");
+        patch.agent_mode = body.agentMode;
+      }
+      if (body.archived !== undefined) {
+        const busy = tasks.all().some((t) => t.project_id === p.id && t.status === "running");
+        if (body.archived && busy) throw new HttpError(409, "Hay una sesión corriendo en este proyecto");
+        patch.archived = body.archived ? 1 : 0;
+      }
+      const next = projects.update(p.id, patch);
+      publishProjects();
+      return next;
     }),
   },
 

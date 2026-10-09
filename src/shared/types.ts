@@ -31,12 +31,28 @@ export interface Task {
   phase: TaskPhase;
   status: TaskStatus;
   workflow: WorkflowId;
+  project_id: string | null;
   ticket_source: string | null;
   ticket_key: string | null;
   ticket_url: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type AgentMode = "real" | "mock";
+
+/** Un repo abierto en Flockline (H17). Las tareas viven dentro de un proyecto. */
+export interface Project {
+  id: string;
+  name: string;
+  repo_path: string;
+  agent_mode: AgentMode;
+  archived: number;
+  created_by: string | null;
+  created_at: string;
+  task_count?: number;
+  active_count?: number;
 }
 
 export interface Question {
@@ -171,6 +187,7 @@ export interface FileContent {
 export type ServerMessage =
   | { type: "task.updated"; taskId: string; task: Task }
   | { type: "tasks.changed" }
+  | { type: "projects.changed" }
   | { type: "session.started"; taskId: string; session: Session }
   | { type: "session.event"; taskId: string; sessionId: string; event: AgentEventRow }
   | { type: "session.ended"; taskId: string; session: Session }

@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { artifactRel, runAgent } from "./agent";
-import { artifactFiles, artifacts, comments, events, now, questions, sessions, tasks, users, uuid } from "./db";
+import { artifactFiles, artifacts, comments, events, now, projects, questions, sessions, tasks, users, uuid } from "./db";
+import { config } from "./config";
 import { bus } from "./bus";
 import * as git from "./git";
 import { HttpError } from "./http";
@@ -183,6 +184,7 @@ async function drive(task: Task, s: Session, ac: AbortController, prompt: string
     const gen = runAgent({
       phase: s.phase, kind: s.kind, slug: task.slug, title: task.title, description: task.description, worktree: task.worktree_path!,
       prompt, resume, signal: ac.signal, abortController: ac, comments: list, userPrompt,
+      mode: (task.project_id ? projects.byId(task.project_id)?.agent_mode : null) ?? config.agentMode, // modo del proyecto (H17)
     });
     for await (const ev of gen) {
       if (ev.sdkSessionId && ev.sdkSessionId !== session.sdk_session_id) session = sessions.update(s.id, { sdk_session_id: ev.sdkSessionId });
