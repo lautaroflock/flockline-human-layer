@@ -36,6 +36,14 @@ export function commentsWithOrphans(taskId: string): Comment[] {
   });
 }
 
+/** Un comentario con su campo calculado `orphan` (solo aplica a abiertos sobre la última versión). */
+export function commentView(c: Comment): Comment {
+  if (c.status !== "open") return c;
+  const art = artifacts.byId(c.artifact_id);
+  if (!art || artifacts.latest(art.task_id, art.phase)?.id !== art.id) return c;
+  return { ...c, orphan: !art.content.includes(c.quote) };
+}
+
 export function taskDetail(id: string): TaskDetail {
   const task = mustTask(id);
   return {

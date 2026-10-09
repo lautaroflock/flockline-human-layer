@@ -1,5 +1,6 @@
 import { setState, setTab, useStore } from "../store";
-import { Markdown } from "./Markdown";
+import { CommentLayer, SelectionPopover, userColor, userName } from "./CommentLayer";
+import { Markdown, type Mark } from "./Markdown";
 import { PHASES, type Artifact, type PhaseName, type Tab } from "../../shared/types";
 
 const TABS: { id: Tab; label: string }[] = [
@@ -53,10 +54,24 @@ function VersionPicker({ phase }: { phase: PhaseName }) {
 }
 
 function ArtifactView({ phase }: { phase: PhaseName }) {
-  const { shown } = useShown(phase);
+  const detail = useStore((s) => s.detail);
+  const users = useStore((s) => s.users);
+  const { shown, latest } = useShown(phase);
+  const task = detail!.task;
+  // Solo se comenta la última versión, de la fase activa y en revisión
+  const commentable = !!shown && shown.id === latest?.id && task.phase === phase && task.status === "awaiting_review";
+  const marks: Mark[] = shown
+    ? detail!.comments
+        .filter((c) => c.artifact_id === shown.id && c.status === "open")
+        .map((c) => ({ quote: c.quote, color: userColor(users, c.author_id), title: `${userName(users, c.author_id)}: ${c.body}` }))
+    : [];
   return (
-    <div className="doc" data-testid="doc">
-      {shown ? <Markdown source={shown.content} /> : <p className="empty">{phase}.md aún no existe. Ejecutá la fase.</p>}
-    </div>
+    <>
+      <div className="doc" data-testid="doc">
+        {shown ? <Markdown source={shown.content} marks={marks} /> : <p className="empty">{phase}.md aún no existe. Ejecutá la fase.</p>}
+      </div>
+      <SelectionPopover phase={phase} enabled={commentable} />
+      <CommentLayer artifact={shown} phase={phase} commentable={commentable} />
+    </>
   );
 }

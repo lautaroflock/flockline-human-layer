@@ -135,6 +135,42 @@ async function main() {
   const plan1 = det.artifacts.find((a) => a.phase === "plan")!;
   check("plan v1 generado", plan1.version === 1 && plan1.content.includes("Crear middleware dedicado"));
 
+  // ───────── H5 comentarios y revisión
+  section("H5 · comentarios y revisión (con resume)");
+  const researchArt = det.artifacts.find((a) => a.phase === "research")!;
+  const old = await lau.api(`/api/artifacts/${researchArt.id}/comments`, "POST", { quote: "rateLimit", body: "tarde" });
+  check("comentar una versión vieja/aprobada → 409", old.status === 409);
+  const noQuote = await lau.api(`/api/artifacts/${plan1.id}/comments`, "POST", { quote: "texto que no existe en el plan", body: "x" });
+  check("cita que no está en el artefacto → 400", noQuote.status === 400);
+  const noneYet = await lau.api(`/api/tasks/${task.id}/phases/plan/revise`, "POST");
+  check("revise sin comentarios → 400", noneYet.status === 400);
+  const c1 = await ana.api(`/api/artifacts/${plan1.id}/comments`, "POST", { quote: "Crear middleware dedicado", body: "Usar el middleware existente en vez de crear uno nuevo" });
+  const c2 = await lau.api(`/api/artifacts/${plan1.id}/comments`, "POST", { quote: "Rate limiting distribuido (Redis)", body: "Confirmado, fuera de alcance" });
+  const c3 = await lau.api(`/api/artifacts/${plan1.id}/comments`, "POST", { quote: "Criterio de aceptación", body: "Falta medir latencia" });
+  check("comentarios creados con su autor", c1.status === 200 && c1.data.author_id === ana.user.id && c2.data.author_id === lau.user.id);
+  await until(() => lau.msgs.filter((m) => m.type === "comment.created").length >= 3 && ana.msgs.filter((m) => m.type === "comment.created").length >= 3, "comment.created en ambos clientes");
+  check("comment.created llega en vivo a ambos usuarios", true);
+  const patchOther = await ana.api(`/api/comments/${c3.data.id}`, "PATCH", { body: "editado por otra persona" });
+  check("editar texto ajeno → 403", patchOther.status === 403);
+  const res = await ana.api(`/api/comments/${c3.data.id}`, "PATCH", { status: "resolved" });
+  check("resolver comentario de otra persona (queda resolved_by)", res.status === 200 && res.data.status === "resolved" && res.data.resolved_by === ana.user.id);
+
+  const sess1 = det.sessions.find((x) => x.phase === "plan")!;
+  const rv = await lau.api(`/api/tasks/${task.id}/phases/plan/revise`, "POST");
+  check("revise → sesión kind=revise", rv.status === 200 && rv.data.kind === "revise");
+  await phaseDone(lau, task.id, "plan", 2);
+  det = (await lau.api<TaskDetail>(`/api/tasks/${task.id}`)).data;
+  const plan2 = det.artifacts.filter((a) => a.phase === "plan").find((a) => a.version === 2)!;
+  check("plan v2 incorpora el comentario", !!plan2 && plan2.content.includes("Reutilizar el middleware existente") && plan2.content.includes("Cambios de esta versión"));
+  const sess2 = det.sessions.filter((x) => x.phase === "plan")[1]!;
+  check("la revisión retoma la sesión anterior del SDK (resume)", !!sess1.sdk_session_id && sess2.sdk_session_id === sess1.sdk_session_id);
+  const cs = det.comments.filter((c) => c.artifact_id === plan1.id);
+  check("comentarios enviados pasan a sent; el resuelto sigue resolved", cs.filter((c) => c.status === "sent").length === 2 && cs.filter((c) => c.status === "resolved").length === 1);
+  const late = await lau.api(`/api/artifacts/${plan1.id}/comments`, "POST", { quote: "Paso 1", body: "tarde" });
+  check("v1 ya no admite comentarios → 409", late.status === 409);
+  const apPlan = await lau.api(`/api/tasks/${task.id}/phases/plan/approve`, "POST");
+  check("aprobar plan v2", apPlan.status === 200 && apPlan.data.phase === "implement");
+
   // (los hitos siguientes agregan sus pasos acá)
 
   await stopServer();

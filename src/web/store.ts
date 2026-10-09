@@ -16,9 +16,10 @@ export interface State {
   wsOk: boolean;
   error: string | null;
   worktreeTick: number; // sube con worktree.changed para refrescar el árbol
+  draft: { phase: string; quote: string } | null; // texto seleccionado esperando comentario
 }
 
-let state: State = { user: null, users: [], tasks: [], activeId: null, detail: null, events: {}, tab: "research", version: {}, wsOk: false, error: null, worktreeTick: 0 };
+let state: State = { user: null, users: [], tasks: [], activeId: null, detail: null, events: {}, tab: "research", version: {}, wsOk: false, error: null, worktreeTick: 0, draft: null };
 const listeners = new Set<() => void>();
 
 export const getState = () => state;
@@ -76,7 +77,7 @@ export async function reloadDetail() {
 export async function selectTask(id: string | null) {
   const prev = state.activeId;
   if (prev && prev !== id) sendWs({ type: "unsubscribe", taskId: prev });
-  setState({ activeId: id, detail: null, version: {}, tab: "research" });
+  setState({ activeId: id, detail: null, version: {}, tab: "research", draft: null });
   history.replaceState(null, "", id ? `?task=${id}` : location.pathname);
   if (!id) return;
   sendWs({ type: "subscribe", taskId: id });

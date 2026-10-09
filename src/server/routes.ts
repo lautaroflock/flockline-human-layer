@@ -1,8 +1,10 @@
-import { artifacts, events, sessions, tasks, users } from "./db";
+import { artifacts, comments, events, now, sessions, tasks, users, uuid } from "./db";
+import { bus } from "./bus";
 import { abortSession, approvePhase, revisePhase, runPhase } from "./orchestrator";
 import { authed, bodyOf, HttpError } from "./http";
 import { presence } from "./presence";
-import { createTask, mustTask, taskDetail } from "./service";
+import { commentView, createTask, logActivity, mustTask, taskDetail } from "./service";
+import type { Comment } from "../shared/types";
 
 // REST: comandos y lecturas (§6). Las rutas de fases, comentarios y archivos se suman en sus hitos.
 export const routes = {
@@ -43,6 +45,51 @@ export const routes = {
       const a = artifacts.byId(params.id!);
       if (!a) throw new HttpError(404, "Artefacto no encontrado");
       return a;
+    }),
+  },
+  "/api/artifacts/:id/comments": {
+    POST: authed(async ({ req, params, user }) => {
+      const art = artifacts.byId(params.id!);
+      if (!art) throw new HttpError(404, "Artefacto no encontrado");
+      const task = mustTask(art.task_id);
+      const body = await bodyOf<{ quote: string; body: string }>(req);
+      const quote = (body.quote ?? "").trim();
+      const text = (body.body ?? "").trim();
+      if (!quote || !text) throw new HttpError(400, "Faltan la cita y el comentario");
+      if (quote.length > 600 || text.length > 2000) throw new HttpError(400, "Comentario demasiado largo");
+      // Solo se comenta la última versión, en revisión (§11.3)
+      if (artifacts.latest(task.id, art.phase)?.id !== art.id) throw new HttpError(409, "Solo se puede comentar la última versión");
+      if (task.phase !== art.phase || task.status !== "awaiting_review") throw new HttpError(409, "La fase no está en revisión");
+      if (!art.content.includes(quote)) throw new HttpError(400, "La cita no aparece en el artefacto");
+      const c: Comment = { id: uuid(), artifact_id: art.id, quote, body: text, status: "open", author_id: user.id, resolved_by: null, created_at: now() };
+      comments.insert(c);
+      bus.publishTask(task.id, { type: "comment.created", taskId: task.id, comment: commentView(c) });
+      logActivity(task.id, user, "comment.created", { phase: art.phase });
+      return c;
+    }),
+  },
+  "/api/comments/:id": {
+    PATCH: authed(async ({ req, params, user }) => {
+      const c = comments.byId(params.id!);
+      if (!c) throw new HttpError(404, "Comentario no encontrado");
+      const art = artifacts.byId(c.artifact_id)!;
+      const body = await bodyOf<{ status: string; body: string }>(req);
+      const patch: Parameters<typeof comments.update>[1] = {};
+      if (body.body !== undefined) {
+        if (c.author_id !== user.id) throw new HttpError(403, "Solo el autor puede editar el texto");
+        if (c.status !== "open") throw new HttpError(409, "Solo se editan comentarios abiertos");
+        if (!body.body.trim()) throw new HttpError(400, "El comentario no puede estar vacío");
+        patch.body = body.body.trim();
+      }
+      if (body.status !== undefined) {
+        if (body.status === "resolved" && c.status === "open") Object.assign(patch, { status: "resolved", resolved_by: user.id });
+        else if (body.status === "open" && c.status === "resolved") Object.assign(patch, { status: "open", resolved_by: null });
+        else throw new HttpError(409, `Transición inválida: ${c.status} → ${body.status}`);
+      }
+      const next = comments.update(c.id, patch);
+      bus.publishTask(art.task_id, { type: "comment.updated", taskId: art.task_id, comment: commentView(next) });
+      if (patch.status === "resolved") logActivity(art.task_id, user, "comment.resolved", { phase: art.phase, author: c.author_id });
+      return next;
     }),
   },
   "/api/tasks/:id/artifacts/:phase/versions": {
