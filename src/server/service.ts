@@ -1,12 +1,14 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { activity, artifacts, comments, sessions, tasks, now, uuid } from "./db";
+import { activity, artifactFiles, artifacts, comments, questions, sessions, tasks, now, uuid } from "./db";
 import { bus } from "./bus";
 import { config } from "./config";
 import * as git from "./git";
 import { HttpError } from "./http";
 import { presence } from "./presence";
+import { specFromTicket, tickets } from "./integrations/tickets";
+import { firstPhase, isWorkflow, PHASE_DEFS, type WorkflowId } from "../shared/workflows";
 import type { ActivityEntry, Comment, Task, TaskDetail, User } from "../shared/types";
 
 export function logActivity(taskId: string, user: User, kind: string, payload?: unknown): ActivityEntry {
@@ -28,7 +30,7 @@ export function mustTask(id: string): Task {
 
 /** Marca como huérfanos los comentarios abiertos cuyo texto citado ya no está en la última versión. */
 export function commentsWithOrphans(taskId: string): Comment[] {
-  const latestIds = new Set(["research", "plan", "implement"].map((p) => artifacts.latest(taskId, p as never)?.id).filter(Boolean));
+  const latestIds = new Set(Object.keys(PHASE_DEFS).map((p) => artifacts.latest(taskId, p as never)?.id).filter(Boolean));
   return comments.byTask(taskId).map((c) => {
     if (c.status !== "open" || !latestIds.has(c.artifact_id)) return c;
     const art = artifacts.byId(c.artifact_id)!;
@@ -53,14 +55,20 @@ export function taskDetail(id: string): TaskDetail {
     comments: commentsWithOrphans(id),
     activity: activity.byTask(id),
     presence: presence.forTask(id),
+    questions: questions.byTask(id),
+    artifactFiles: artifactFiles.metaByTask(id),
   };
 }
 
 const expandHome = (p: string) => (p.startsWith("~") ? join(homedir(), p.slice(1)) : p);
 
-export async function createTask(input: { title: string; description: string; repoPath: string }, user: User): Promise<Task> {
-  const title = input.title.trim();
-  const description = input.description.trim();
+export async function createTask(input: { title: string; description: string; repoPath: string; workflow?: string; ticketKey?: string }, user: User): Promise<Task> {
+  // Desde un ticket (H15): título, descripción y flujo sugerido salen del ticket si no vienen
+  const ticket = input.ticketKey ? tickets.get(input.ticketKey) : null;
+  if (input.ticketKey && !ticket) throw new HttpError(404, `No existe el ticket ${input.ticketKey}`);
+  const title = (input.title || ticket?.summary || "").trim();
+  const description = (input.description || ticket?.description || "").trim();
+  const workflow: WorkflowId = input.workflow ? (isWorkflow(input.workflow) ? input.workflow : invalidWorkflow()) : ticket?.suggestedWorkflow ?? "rpi";
   if (!title) throw new HttpError(400, "El título es obligatorio");
   if (title.length > 120) throw new HttpError(400, "El título es demasiado largo");
   if (!input.repoPath?.trim()) throw new HttpError(400, "La ruta del repositorio es obligatoria");
@@ -74,9 +82,11 @@ export async function createTask(input: { title: string; description: string; re
   }
   const top = (await git.git(repoPath, ["rev-parse", "--show-toplevel"])).out.trim();
 
-  let slug = "";
-  do slug = `${git.slugify(title)}-${uuid().slice(0, 4)}`;
-  while (tasks.slugExists(slug));
+  let slug = ticket ? `${ticket.key.toLowerCase()}-${git.slugify(ticket.summary)}`.slice(0, 48).replace(/-+$/, "") : "";
+  if (!slug || tasks.slugExists(slug)) {
+    do slug = `${ticket ? `${ticket.key.toLowerCase()}-` : ""}${git.slugify(title)}-${uuid().slice(0, 4)}`;
+    while (tasks.slugExists(slug));
+  }
 
   const branch = `flock/${slug}`;
   const worktreePath = git.worktreePathFor(config.worktreesDir, slug);
@@ -91,11 +101,28 @@ export async function createTask(input: { title: string; description: string; re
   const ts = now();
   const task: Task = {
     id: uuid(), slug, title, description, repo_path: top, worktree_path: worktreePath, branch,
-    base_branch: info.branch, base_commit: info.commit, phase: "spec", status: "idle",
+    base_branch: info.branch, base_commit: info.commit, phase: firstPhase(workflow), status: "idle", workflow,
+    ticket_source: ticket ? tickets.source : null, ticket_key: ticket?.key ?? null, ticket_url: ticket?.url ?? null,
     created_by: user.id, created_at: ts, updated_at: ts,
   };
   tasks.insert(task);
-  logActivity(task.id, user, "task.created", { branch });
+  logActivity(task.id, user, "task.created", { branch, workflow, ticket: ticket?.key ?? null });
+
+  // La primera fase manual (Spec o PRD) arranca con una v1 importada del ticket, sin autor
+  const first = PHASE_DEFS[task.phase as keyof typeof PHASE_DEFS];
+  if (ticket && first?.kind === "manual") {
+    const content = specFromTicket(ticket, first.label);
+    const rel = `.flock/${slug}/${first.artifact}`;
+    writeFileSync(join(worktreePath, rel), content);
+    artifacts.create(task.id, first.id, rel, content, null);
+    const updated = tasks.update(task.id, { status: "awaiting_review" });
+    publishTask(updated);
+    return updated;
+  }
   publishTask(task);
   return task;
+}
+
+function invalidWorkflow(): never {
+  throw new HttpError(400, "Flujo inválido");
 }

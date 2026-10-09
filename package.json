@@ -22,6 +22,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.295",
     "diff2html": "^3.4.56",
+    "mermaid": "^11.17.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",

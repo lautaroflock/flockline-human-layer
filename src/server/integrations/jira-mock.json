@@ -1,0 +1,54 @@
+[
+  {
+    "key": "FLK-123",
+    "type": "Story",
+    "summary": "Agregar rate limiting por IP al endpoint /login",
+    "description": "Hoy el endpoint POST /login acepta intentos ilimitados y es vulnerable a fuerza bruta. Queremos limitar los intentos por IP sin afectar el resto de la API.",
+    "acceptance": [
+      "Se permiten como máximo 5 intentos por minuto por IP.",
+      "El sexto intento responde 429 con el header Retry-After en segundos.",
+      "Otras IP y otras rutas no se ven afectadas.",
+      "Hay pruebas automatizadas del límite."
+    ],
+    "priority": "Alta",
+    "labels": ["seguridad", "auth"],
+    "reporter": "María Gómez",
+    "created": "2026-10-06",
+    "url": "https://ejemplo.atlassian.net/browse/FLK-123",
+    "suggestedWorkflow": "rpi"
+  },
+  {
+    "key": "FLK-124",
+    "type": "Bug",
+    "summary": "El login devuelve 500 cuando el body viene vacío",
+    "description": "Si el cliente manda POST /login sin body, el handler intenta leer user y password de undefined y la API responde 500 en lugar de 400.",
+    "acceptance": [
+      "Un body vacío o sin user/password responde 400 con un mensaje claro.",
+      "El caso queda cubierto por una prueba."
+    ],
+    "priority": "Media",
+    "labels": ["bug", "auth"],
+    "reporter": "Diego Ruiz",
+    "created": "2026-10-07",
+    "url": "https://ejemplo.atlassian.net/browse/FLK-124",
+    "suggestedWorkflow": "oneshot"
+  },
+  {
+    "key": "FLK-125",
+    "type": "Epic",
+    "summary": "Rediseñar el flujo de autenticación con MFA opcional",
+    "description": "Queremos ofrecer un segundo factor opcional (TOTP) sin romper a los clientes actuales del login. Hay decisiones abiertas sobre el enrolamiento, la recuperación y la experiencia en el cliente.",
+    "acceptance": [
+      "Las personas usuarias pueden activar y desactivar MFA por TOTP.",
+      "El login con MFA activo pide el código después de la contraseña.",
+      "Existe un mecanismo de recuperación documentado.",
+      "Los clientes actuales sin MFA siguen funcionando sin cambios."
+    ],
+    "priority": "Alta",
+    "labels": ["auth", "producto"],
+    "reporter": "María Gómez",
+    "created": "2026-10-01",
+    "url": "https://ejemplo.atlassian.net/browse/FLK-125",
+    "suggestedWorkflow": "qrspi"
+  }
+]

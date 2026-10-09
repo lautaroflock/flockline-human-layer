@@ -97,3 +97,26 @@ button kbd{background:rgba(0,0,0,.25);border-color:rgba(0,0,0,.35);color:inherit
 .step button.mini{padding:0 6px;font-size:12px;line-height:18px;margin-left:2px}
 .badge.cancelled{color:var(--err);border-color:var(--err);text-decoration:line-through}
 .step.cancelled .dot{background:var(--err)}
+/* H12-H15 */
+.badge.wf{color:var(--acc);border-color:var(--acc)}
+.chip{display:inline-block;font-size:11px;font-family:ui-monospace,Consolas,monospace;padding:0 6px;border-radius:4px;background:#2684ff22;color:#6ea8fe;border:1px solid #2684ff66;margin-right:4px;cursor:pointer}
+.seg{display:inline-flex;gap:0;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-radius:0;padding:3px 10px;font-size:12px}.seg button.on{background:var(--acc);color:#0b1220}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:10px;flex:1;min-height:360px}
+.split textarea{font-family:ui-monospace,Consolas,monospace;font-size:13px;line-height:1.5;resize:none;min-height:360px}
+.split .preview{border:1px solid var(--line);border-radius:6px;padding:8px 12px;overflow:auto;background:var(--panel)}
+.diagram{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0;overflow:auto;text-align:center}
+.diagram svg{max-width:100%;height:auto}
+.diagram.error{text-align:left;color:var(--warn)}
+.mockup-stage{flex:1;display:flex;justify-content:center;background:#ffffff10;border-radius:8px;padding:10px;min-height:420px}
+.mockup-stage iframe{border:1px solid var(--line);border-radius:8px;background:#fff;height:520px}
+.qcard{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px;background:var(--panel)}
+.qcard.open{border-left:3px solid var(--warn)}.qcard.answered{border-left:3px solid var(--ok)}.qcard.skipped{border-left:3px solid var(--mut);opacity:.8}
+.qtext{font-weight:600}.qwhy{color:var(--mut);font-size:12px;margin:2px 0 6px}.qanswer{margin-top:4px}
+.qopts{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}.qopts button{font-size:12px}
+.tickets{border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0;max-height:220px;overflow:auto}
+.ticket{padding:6px 8px;border-radius:6px;cursor:pointer;margin-top:4px}.ticket:hover{background:var(--panel2)}.ticket.sel{outline:1px solid var(--acc)}
+.mock-note{font-size:11px;color:var(--warn);margin-bottom:6px}
+.doc input[type=checkbox]{width:auto;margin:0 6px 0 0;vertical-align:middle}
+.doc li.task-list-item{list-style:none;margin-left:-18px}
+.tabs{overflow-x:auto;scrollbar-width:thin}

@@ -58,6 +58,20 @@ describe("escrituras", () => {
   });
 });
 
+describe("extensiones en .flock/ (H14)", () => {
+  const design: GuardCtx = { phase: "design", slug: "t1", worktree: wt };
+  test("documentos, diagramas y mockups sí", () => {
+    for (const f of ["design.md", "mockup.html", "flujo.mmd", "diagrama.svg"]) expect(ok(design, "Write", { file_path: `.flock/t1/${f}` })).toBe(true);
+  });
+  test("otros tipos de archivo no", () => {
+    for (const f of ["x.exe", "script.js", "datos.json", "sin-extension"]) expect(ok(design, "Write", { file_path: `.flock/t1/${f}` })).toBe(false);
+    expect(ok(implement, "Write", { file_path: ".flock/t1/x.sh" })).toBe(false);
+  });
+  test("Questions no escribe archivos", () => {
+    expect(ok({ phase: "questions", slug: "t1", worktree: wt }, "Write", { file_path: ".flock/t1/questions.md" })).toBe(false);
+  });
+});
+
 describe("Bash por lista blanca", () => {
   test("comandos permitidos", () => {
     for (const c of ["bun test", "bun test tests/login.test.ts", "git status", "git diff --stat", "npm test"]) expect(ok(implement, "Bash", { command: c })).toBe(true);

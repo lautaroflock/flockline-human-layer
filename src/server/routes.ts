@@ -1,6 +1,8 @@
-import { activity, artifacts, comments, events, now, sessions, tasks, users, uuid } from "./db";
+import { activity, artifactFiles, artifacts, comments, events, now, sessions, tasks, users, uuid } from "./db";
 import { bus } from "./bus";
-import { abortSession, approvePhase, cancelTask, reopenTask, revisePhase, rewindTask, runPhase, saveArtifact } from "./orchestrator";
+import { abortSession, answerQuestion, approvePhase, cancelTask, closeTask, reopenTask, revisePhase, rewindTask, runPhase, saveArtifact, setWorkflow, startFreeSession } from "./orchestrator";
+import { tickets } from "./integrations/tickets";
+import { WORKFLOWS, isPhase } from "../shared/workflows";
 import { authed, bodyOf, HttpError } from "./http";
 import { presence } from "./presence";
 import * as git from "./git";
@@ -22,12 +24,42 @@ export const routes = {
   "/api/tasks": {
     GET: authed(() => tasks.all()),
     POST: authed(async ({ req, user }) => {
-      const body = await bodyOf<{ title: string; description: string; repoPath: string }>(req);
-      return createTask({ title: body.title ?? "", description: body.description ?? "", repoPath: body.repoPath ?? "" }, user);
+      const body = await bodyOf<{ title: string; description: string; repoPath: string; workflow: string; ticketKey: string }>(req);
+      return createTask({ title: body.title ?? "", description: body.description ?? "", repoPath: body.repoPath ?? "", workflow: body.workflow, ticketKey: body.ticketKey }, user);
     }),
   },
 
-  "/api/tasks/:id": { GET: authed(({ params }) => taskDetail(mustTask(params.id!).id)) },
+  "/api/workflows": { GET: authed(() => Object.values(WORKFLOWS)) },
+
+  // Tickets de ejemplo (H15): mock, sin conexión a Jira
+  "/api/tickets": { GET: authed(({ req }) => ({ source: tickets.source, tickets: tickets.list(new URL(req.url).searchParams.get("q") ?? "") })) },
+  "/api/tickets/:key": {
+    GET: authed(({ params }) => {
+      const t = tickets.get(params.key!);
+      if (!t) throw new HttpError(404, "Ticket no encontrado");
+      return t;
+    }),
+  },
+
+  // Preguntas de la fase Questions (H13)
+  "/api/questions/:id": {
+    PATCH: authed(async ({ req, params, user }) => answerQuestion(params.id!, await bodyOf<{ answer: string; status: string; useSuggestion: boolean }>(req), user)),
+  },
+
+  // Freeform (H12)
+  "/api/tasks/:id/sessions": {
+    POST: authed(async ({ req, params, user }) => startFreeSession(params.id!, (await bodyOf<{ prompt: string }>(req)).prompt ?? "", user)),
+  },
+  "/api/tasks/:id/close": { POST: authed(({ params, user }) => closeTask(params.id!, user)) },
+
+  "/api/tasks/:id": {
+    GET: authed(({ params }) => taskDetail(mustTask(params.id!).id)),
+    PATCH: authed(async ({ req, params, user }) => {
+      const body = await bodyOf<{ workflow: string }>(req);
+      if (!body.workflow) throw new HttpError(400, "Nada para cambiar");
+      return setWorkflow(params.id!, body.workflow, user);
+    }),
+  },
 
   // Fases (§5): toda validación vive en orchestrator.ts
   "/api/tasks/:id/phases/:phase/run": { POST: authed(({ params, user }) => runPhase(params.id!, params.phase!, user)) },
@@ -65,6 +97,14 @@ export const routes = {
       const a = artifacts.byId(params.id!);
       if (!a) throw new HttpError(404, "Artefacto no encontrado");
       return a;
+    }),
+  },
+  "/api/artifacts/:id/files": {
+    GET: authed(({ req, params }) => {
+      const path = new URL(req.url).searchParams.get("path") ?? "";
+      const f = artifactFiles.get(params.id!, path);
+      if (!f) throw new HttpError(404, "Archivo no encontrado en esta versión");
+      return { path, content: f.content };
     }),
   },
   "/api/artifacts/:id/comments": {
@@ -144,7 +184,7 @@ export const routes = {
   "/api/tasks/:id/artifacts/:phase/versions": {
     GET: authed(({ params }) => {
       mustTask(params.id!);
-      if (!["spec", "research", "plan", "implement"].includes(params.phase!)) throw new HttpError(400, "Fase inválida");
+      if (!isPhase(params.phase)) throw new HttpError(400, "Fase inválida");
       return artifacts.versions(params.id!, params.phase as never).map(({ content: _c, ...meta }) => meta);
     }),
   },

@@ -1,17 +1,15 @@
 // Tipos compartidos servidor/cliente. Las filas viajan tal cual salen de SQLite (snake_case).
 
-export type PhaseName = "spec" | "research" | "plan" | "implement";
+import type { PhaseName, WorkflowId } from "./workflows";
+export type { PhaseName, WorkflowId } from "./workflows";
 export type TaskPhase = PhaseName | "done";
 export type TaskStatus = "idle" | "running" | "awaiting_review" | "failed" | "cancelled";
 export type SessionStatus = "running" | "done" | "failed" | "aborted";
 export type SessionKind = "run" | "revise";
 export type CommentStatus = "open" | "sent" | "resolved";
 export type EventType = "system" | "assistant_text" | "thinking" | "tool_use" | "tool_result" | "result" | "error";
-export type Tab = "spec" | "research" | "plan" | "implement" | "files" | "diff";
-
-export const PHASES: PhaseName[] = ["spec", "research", "plan", "implement"];
-/** Fases donde corre el agente (la etapa Spec se escribe a mano). */
-export const AGENT_PHASES: PhaseName[] = ["research", "plan", "implement"];
+export type Tab = PhaseName | "files" | "diff";
+export type QuestionStatus = "open" | "answered" | "skipped";
 
 export interface User {
   id: string;
@@ -32,9 +30,49 @@ export interface Task {
   base_commit: string | null;
   phase: TaskPhase;
   status: TaskStatus;
+  workflow: WorkflowId;
+  ticket_source: string | null;
+  ticket_key: string | null;
+  ticket_url: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface Question {
+  id: string;
+  task_id: string;
+  artifact_id: string | null;
+  idx: number;
+  text: string;
+  why: string;
+  options: string; // JSON: string[]
+  suggestion: string;
+  answer: string | null;
+  status: QuestionStatus;
+  answered_by: string | null;
+  answered_at: string | null;
+}
+
+/** Archivo extra versionado junto a un artefacto (mockups, H14). Sin contenido: se pide aparte. */
+export interface ArtifactFileMeta {
+  artifact_id: string;
+  path: string;
+  size: number;
+}
+
+export interface Ticket {
+  key: string;
+  type: "Story" | "Bug" | "Epic" | "Task";
+  summary: string;
+  description: string;
+  acceptance: string[];
+  priority: string;
+  labels: string[];
+  reporter: string;
+  created: string;
+  url: string;
+  suggestedWorkflow: WorkflowId;
 }
 
 export interface Session {
@@ -106,6 +144,8 @@ export interface TaskDetail {
   comments: Comment[];
   activity: ActivityEntry[];
   presence: PresenceEntry[];
+  questions: Question[];
+  artifactFiles: ArtifactFileMeta[];
 }
 
 export interface TreeEntry {
@@ -140,7 +180,9 @@ export type ServerMessage =
   | { type: "comment.updated"; taskId: string; comment: Comment }
   | { type: "activity.added"; taskId: string; entry: ActivityEntry }
   | { type: "presence.changed"; taskId: string; presence: PresenceEntry[] }
-  | { type: "worktree.changed"; taskId: string };
+  | { type: "worktree.changed"; taskId: string }
+  | { type: "question.updated"; taskId: string; question: Question }
+  | { type: "questions.changed"; taskId: string };
 
 export type ClientMessage =
   | { type: "subscribe"; taskId: string }

@@ -43,6 +43,23 @@ Entrás con un nombre (sin contraseñas). Abrí la URL en dos navegadores con no
 
 El servidor escucha en `127.0.0.1`. Para compartirlo en una red de confianza: `HOST=0.0.0.0`. Con WSL2, `localhost` solo se reenvía a la propia máquina: usá `networkingMode=mirrored` en `.wslconfig` o un túnel. No hay autenticación real: no lo expongas a Internet.
 
+## Flujos de trabajo
+
+Cada tarea elige su flujo al crearse (`src/shared/workflows.ts`):
+
+| Flujo | Fases |
+|---|---|
+| RPI (default) | Spec → Research → Plan → Implement |
+| QRSPI | Spec → Questions → Research → Design → Structure → Plan → Implement |
+| Outline | Spec → Research → Outline → Implement |
+| PRD | PRD → Research → Design → Plan → Implement |
+| Oneshot | Spec → Implement |
+| Freeform | sesiones sueltas con prompt libre, sin fases |
+
+- **Questions**: el agente devuelve preguntas (salida estructurada); las personas responden, aceptan la sugerencia o marcan "no aplica". No se aprueba con preguntas abiertas y las respuestas alimentan las fases siguientes.
+- **Diagramas y mockups**: los bloques ```mermaid se dibujan dentro de los artefactos y en la vista previa del editor. En Design (o Plan si el flujo no tiene Design) el agente puede dejar `mockup.html`, que se versiona con el artefacto y se muestra en un iframe aislado de la app.
+- **Tickets de Jira (mock)**: "Desde Jira" en el alta de tareas lista tres tickets de ejemplo (FLK-123/124/125). Completa título, slug y flujo sugerido, y arranca la spec desde el ticket. No hay conexión real: `TICKETS_MODE` distinto de `mock` impide arrancar.
+
 ## Spec manual y edición
 
 - La etapa **Spec** no corre agente: pestaña Spec → "Escribir spec" (plantilla precargada) → guardar → aprobar. La spec aprobada entra en los prompts de Research, Plan e Implement.

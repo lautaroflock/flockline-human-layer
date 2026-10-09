@@ -5,11 +5,8 @@ Estás en la fase PLAN. A partir del research aprobado, diseñá un plan de impl
 
 {{description}}
 
-# Spec aprobada (definida por las personas)
-{{spec}}
-
-# Research aprobado
-{{research}}
+# Entradas aprobadas
+{{inputs}}
 
 # Qué producir
 Escribí `{{artifactPath}}` (Markdown, en español) con un plan por pasos numerados. Cada paso debe incluir:
@@ -18,7 +15,11 @@ Escribí `{{artifactPath}}` (Markdown, en español) con un plan por pasos numera
 - **Pruebas** a escribir o correr.
 - **Criterio de aceptación** verificable.
 
+Si hay una Structure aprobada, cada paso referencia sus archivos y no inventa otros.
+
 Cerrá con una sección **Qué no vamos a hacer**.
+
+{{mockups}}
 
 # Reglas
 - No modifiques código en esta fase.

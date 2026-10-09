@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ActivityFeed } from "./components/ActivityFeed";
+import { QuestionsPanel } from "./components/QuestionsPanel";
 import { PresenceBar, UserSwitcher } from "./components/Presence";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { PhaseStepper } from "./components/PhaseStepper";
@@ -37,7 +38,7 @@ function Center() {
   return (
     <section className="center">
       <PhaseStepper />
-      <SessionLog />
+      {detail.task.phase === "questions" && detail.task.status === "awaiting_review" ? <QuestionsPanel /> : <SessionLog />}
       <ActivityFeed />
     </section>
   );

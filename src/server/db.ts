@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { config } from "./config";
-import type { ActivityEntry, AgentEventRow, Artifact, Comment, PhaseName, Session, Task, User } from "../shared/types";
+import type { ActivityEntry, AgentEventRow, Artifact, ArtifactFileMeta, Comment, PhaseName, Question, Session, Task, User } from "../shared/types";
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 export const db = new Database(config.dbPath, { create: true });
@@ -90,6 +90,35 @@ const MIGRATIONS: string[] = [
   `,
   // v2: autor de cada versión (edición manual, etapa Spec)
   `ALTER TABLE artifacts ADD COLUMN created_by TEXT REFERENCES users(id);`,
+  // v3: tipo de flujo por tarea (H12)
+  `ALTER TABLE tasks ADD COLUMN workflow TEXT NOT NULL DEFAULT 'rpi';`,
+  // v4: preguntas del agente y sus respuestas (H13)
+  `CREATE TABLE questions (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id),
+    artifact_id TEXT REFERENCES artifacts(id),
+    idx INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    why TEXT NOT NULL DEFAULT '',
+    options TEXT NOT NULL DEFAULT '[]',
+    suggestion TEXT NOT NULL DEFAULT '',
+    answer TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    answered_by TEXT REFERENCES users(id),
+    answered_at TEXT
+  );
+  CREATE INDEX idx_questions_task ON questions(task_id, idx);`,
+  // v5: archivos extra versionados con cada artefacto, p. ej. mockups (H14)
+  `CREATE TABLE artifact_files (
+    artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+    path TEXT NOT NULL,
+    content TEXT NOT NULL,
+    PRIMARY KEY (artifact_id, path)
+  );`,
+  // v6: ticket de origen (H15)
+  `ALTER TABLE tasks ADD COLUMN ticket_source TEXT;
+   ALTER TABLE tasks ADD COLUMN ticket_key TEXT;
+   ALTER TABLE tasks ADD COLUMN ticket_url TEXT;`,
 ];
 
 function migrate() {
@@ -126,15 +155,50 @@ export const tasks = {
   slugExists: (slug: string) => !!db.query("SELECT 1 FROM tasks WHERE slug = ?").get(slug),
   insert(t: Task) {
     db.query(
-      `INSERT INTO tasks (id, slug, title, description, repo_path, worktree_path, branch, base_branch, base_commit, phase, status, created_by, created_at, updated_at)
-       VALUES ($id, $slug, $title, $description, $repo_path, $worktree_path, $branch, $base_branch, $base_commit, $phase, $status, $created_by, $created_at, $updated_at)`,
+      `INSERT INTO tasks (id, slug, title, description, repo_path, worktree_path, branch, base_branch, base_commit, phase, status, workflow, ticket_source, ticket_key, ticket_url, created_by, created_at, updated_at)
+       VALUES ($id, $slug, $title, $description, $repo_path, $worktree_path, $branch, $base_branch, $base_commit, $phase, $status, $workflow, $ticket_source, $ticket_key, $ticket_url, $created_by, $created_at, $updated_at)`,
     ).run(Object.fromEntries(Object.entries(t).map(([k, v]) => [`$${k}`, v])) as never);
   },
-  update(id: string, patch: Partial<Pick<Task, "phase" | "status">>): Task {
+  update(id: string, patch: Partial<Pick<Task, "phase" | "status" | "workflow">>): Task {
     const cur = tasks.byId(id)!;
     const next = { ...cur, ...patch, updated_at: now() };
-    db.query("UPDATE tasks SET phase = ?, status = ?, updated_at = ? WHERE id = ?").run(next.phase, next.status, next.updated_at, id);
+    db.query("UPDATE tasks SET phase = ?, status = ?, workflow = ?, updated_at = ? WHERE id = ?").run(next.phase, next.status, next.workflow, next.updated_at, id);
     return next;
+  },
+};
+
+export const questions = {
+  byId: (id: string) => db.query("SELECT * FROM questions WHERE id = ?").get(id) as Question | null,
+  byTask: (taskId: string) => db.query("SELECT * FROM questions WHERE task_id = ? ORDER BY idx").all(taskId) as Question[],
+  openCount: (taskId: string) => (db.query("SELECT COUNT(*) AS n FROM questions WHERE task_id = ? AND status = 'open'").get(taskId) as { n: number }).n,
+  insert(taskId: string, artifactId: string | null, q: { text: string; why?: string; options?: string[]; suggestion?: string }): Question {
+    const idx = ((db.query("SELECT MAX(idx) AS m FROM questions WHERE task_id = ?").get(taskId) as { m: number | null }).m ?? 0) + 1;
+    const row: Question = {
+      id: uuid(), task_id: taskId, artifact_id: artifactId, idx, text: q.text, why: q.why ?? "", options: JSON.stringify(q.options ?? []),
+      suggestion: q.suggestion ?? "", answer: null, status: "open", answered_by: null, answered_at: null,
+    };
+    db.query("INSERT INTO questions (id, task_id, artifact_id, idx, text, why, options, suggestion, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open')").run(
+      row.id, taskId, artifactId, idx, row.text, row.why, row.options, row.suggestion,
+    );
+    return row;
+  },
+  setArtifact(taskId: string, artifactId: string) {
+    db.query("UPDATE questions SET artifact_id = ? WHERE task_id = ? AND artifact_id IS NULL").run(artifactId, taskId);
+  },
+  answer(id: string, patch: { answer: string | null; status: Question["status"]; userId: string | null }): Question {
+    db.query("UPDATE questions SET answer = ?, status = ?, answered_by = ?, answered_at = ? WHERE id = ?").run(
+      patch.answer, patch.status, patch.userId, patch.userId ? now() : null, id,
+    );
+    return questions.byId(id)!;
+  },
+};
+
+export const artifactFiles = {
+  metaByTask: (taskId: string) =>
+    db.query("SELECT f.artifact_id, f.path, LENGTH(f.content) AS size FROM artifact_files f JOIN artifacts a ON a.id = f.artifact_id WHERE a.task_id = ? ORDER BY f.path").all(taskId) as ArtifactFileMeta[],
+  get: (artifactId: string, path: string) => db.query("SELECT content FROM artifact_files WHERE artifact_id = ? AND path = ?").get(artifactId, path) as { content: string } | null,
+  put(artifactId: string, path: string, content: string) {
+    db.query("INSERT OR REPLACE INTO artifact_files (artifact_id, path, content) VALUES (?, ?, ?)").run(artifactId, path, content);
   },
 };
 

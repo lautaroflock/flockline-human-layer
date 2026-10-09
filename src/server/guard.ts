@@ -1,15 +1,15 @@
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { extname, isAbsolute, join, resolve, sep } from "node:path";
 import { resolveInside } from "./files";
 import type { PhaseName } from "../shared/types";
+import { PHASE_DEFS } from "../shared/workflows";
 
 // Guarda de herramientas (§5). La usan el agente mock, el canUseTool del SDK real y su hook PreToolUse:
 // el hook corre antes de TODA herramienta (también las de solo lectura, que canUseTool nunca ve).
-export const TOOLS: Record<PhaseName, string[]> = {
-  spec: [], // se escribe a mano: no corre agente
-  research: ["Read", "Grep", "Glob", "Write"],
-  plan: ["Read", "Grep", "Glob", "Write"],
-  implement: ["Read", "Grep", "Glob", "Write", "Edit", "Bash"],
-};
+/** Herramientas por fase, del catálogo de flujos (H12). */
+export const TOOLS = Object.fromEntries(Object.values(PHASE_DEFS).map((d) => [d.id, d.tools])) as Record<PhaseName, string[]>;
+
+/** Extensiones que se pueden escribir en .flock/<slug>/: documentos, diagramas y mockups (H14). */
+const FLOCK_EXT = [".md", ".html", ".svg", ".mmd"];
 
 /**
  * Bash por lista blanca: el comando debe ser exactamente uno de estos (más argumentos simples).
@@ -75,10 +75,13 @@ export function checkTool(ctx: GuardCtx, tool: string, input: Record<string, unk
       const target = String(input.file_path ?? input.path ?? "");
       const full = resolveInside(ctx.worktree, target, { allowAbsolute: true });
       if (!full) return deny(`Escritura fuera del worktree: ${target}`);
-      if (ctx.phase !== "implement") {
+      const flockDir = resolve(join(ctx.worktree, ".flock"));
+      const inFlock = full.startsWith(flockDir + sep);
+      if (!PHASE_DEFS[ctx.phase].code) {
         const allowed = resolve(join(ctx.worktree, ".flock", ctx.slug));
         if (full !== allowed && !full.startsWith(allowed + sep)) return deny(`En ${ctx.phase} solo se puede escribir en .flock/${ctx.slug}/`);
       }
+      if (inFlock && !FLOCK_EXT.includes(extname(full).toLowerCase())) return deny(`En .flock/ solo se escriben ${FLOCK_EXT.join(", ")}`);
       break;
     }
     case "Bash":

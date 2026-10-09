@@ -16,12 +16,12 @@ Cada hito del plan (§8 del spec "Clon web de HumanLayer") tiene su archivo. Se 
 | H9 | [H9-worktree-navegable.md](H9-worktree-navegable.md) | 1 h |
 | H10 | [H10-spec-manual-y-edicion.md](H10-spec-manual-y-edicion.md) | 1,5 h |
 | H11 | [H11-cancelar-retroceder.md](H11-cancelar-retroceder.md) (implementado) | 1 h |
-| H12 | [H12-flujos-de-trabajo.md](H12-flujos-de-trabajo.md) (pendiente) | 3 h |
-| H13 | [H13-preguntas-design-structure.md](H13-preguntas-design-structure.md) (pendiente, requiere H12) | 3 h |
-| H14 | [H14-diagramas-mockups.md](H14-diagramas-mockups.md) (pendiente) | 2 h |
-| H15 | [H15-importar-jira-mock.md](H15-importar-jira-mock.md) (pendiente, mock) | 1,5 h |
+| H12 | [H12-flujos-de-trabajo.md](H12-flujos-de-trabajo.md) (implementado) | 3 h |
+| H13 | [H13-preguntas-design-structure.md](H13-preguntas-design-structure.md) (implementado) | 3 h |
+| H14 | [H14-diagramas-mockups.md](H14-diagramas-mockups.md) (implementado) | 2 h |
+| H15 | [H15-importar-jira-mock.md](H15-importar-jira-mock.md) (implementado, mock) | 1,5 h |
 
-Orden sugerido para lo pendiente: H12 → H13 → H14 → H15. H14 y H15 son independientes y pueden ir antes si la demo los necesita.
+H12–H15 están cubiertos por las secciones del mismo nombre en `bun run e2e`.
 
 ## Decisiones de entorno (desvíos del spec)
 

@@ -4,7 +4,7 @@ import { useStore } from "../store";
 const NONE: never[] = [];
 
 const VERB: Record<string, (p: any) => string> = {
-  "task.created": () => "creó la tarea y el worktree",
+  "task.created": (p) => `creó la tarea${p?.ticket ? ` desde ${p.ticket}` : ""} (flujo ${p?.workflow ?? "rpi"})`,
   "phase.run": (p) => `ejecutó ${p?.phase}`,
   "phase.revise": (p) => `pidió revisar ${p?.phase}`,
   "phase.approved": (p) => `aprobó ${p?.phase}`,
@@ -15,6 +15,11 @@ const VERB: Record<string, (p: any) => string> = {
   "task.cancelled": (p) => `canceló la tarea (en ${p?.phase})`,
   "task.reopened": () => "reabrió la tarea",
   "phase.rewound": (p) => p?.from === p?.to ? `rehízo ${p?.to}` : `volvió de ${p?.from} a ${p?.to}`,
+  "question.answered": (p) => (p?.status === "skipped" ? `marcó la pregunta ${p?.idx} como no aplica` : p?.status === "open" ? `reabrió la pregunta ${p?.idx}` : `respondió la pregunta ${p?.idx}`),
+  "questions.more": () => "pidió más preguntas al agente",
+  "session.free": () => "abrió una sesión libre",
+  "task.closed": () => "cerró la tarea",
+  "task.workflow": (p) => `cambió el flujo de ${p?.from} a ${p?.to}`,
   "comments.sent": (p) => `envió ${p?.count} comentario(s) al agente (${p?.phase})`,
 };
 

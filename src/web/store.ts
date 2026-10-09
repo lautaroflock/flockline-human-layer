@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { AgentEventRow, ServerMessage, Tab, Task, TaskDetail, User } from "../shared/types";
 import { api, getToken, TOKEN_KEY } from "./api";
+import { isPhase, PHASE_DEFS, phasesOf } from "../shared/workflows";
 
 export type UserInfo = User & { online?: boolean };
 
@@ -18,9 +19,10 @@ export interface State {
   worktreeTick: number; // sube con worktree.changed para refrescar el árbol
   draft: { phase: string; quote: string } | null; // texto seleccionado esperando comentario
   newTaskOpen: boolean;
+  viewSession: string | null; // sesión elegida en el log (null = la última)
 }
 
-let state: State = { user: null, users: [], tasks: [], activeId: null, detail: null, events: {}, tab: "research", version: {}, wsOk: false, error: null, worktreeTick: 0, draft: null, newTaskOpen: false };
+let state: State = { user: null, users: [], tasks: [], activeId: null, detail: null, events: {}, tab: "research", version: {}, wsOk: false, error: null, worktreeTick: 0, draft: null, newTaskOpen: false, viewSession: null };
 const listeners = new Set<() => void>();
 
 export const getState = () => state;
@@ -78,13 +80,13 @@ export async function reloadDetail() {
 export async function selectTask(id: string | null) {
   const prev = state.activeId;
   if (prev && prev !== id) sendWs({ type: "unsubscribe", taskId: prev });
-  setState({ activeId: id, detail: null, version: {}, tab: "spec", draft: null });
+  setState({ activeId: id, detail: null, version: {}, tab: "spec", draft: null, viewSession: null });
   history.replaceState(null, "", id ? `?task=${id}` : location.pathname);
   if (!id) return;
   sendWs({ type: "subscribe", taskId: id });
   await run(reloadDetail());
   const d = state.detail;
-  if (d) setTab(d.task.phase === "implement" || d.task.phase === "done" ? "diff" : d.task.phase);
+  if (d) setTab(defaultTab(d.task.workflow, d.task.phase));
 }
 
 export function setTab(tab: Tab) {
@@ -136,7 +138,7 @@ function applyMessage(m: ServerMessage) {
       case "task.updated":
         return { tasks: upsert(s.tasks, m.task), ...(d ? { detail: { ...d, task: m.task } } : {}) };
       case "session.started":
-        return d ? { detail: { ...d, sessions: upsert(d.sessions, m.session) }, events: { ...s.events, [m.session.id]: [] } } : {};
+        return d ? { detail: { ...d, sessions: upsert(d.sessions, m.session) }, events: { ...s.events, [m.session.id]: [] }, viewSession: null } : {};
       case "session.ended":
         return d ? { detail: { ...d, sessions: upsert(d.sessions, m.session) } } : {};
       case "session.event": {
@@ -160,6 +162,8 @@ function applyMessage(m: ServerMessage) {
         return d ? { detail: { ...d, presence: m.presence } } : {};
       case "worktree.changed":
         return d ? { worktreeTick: s.worktreeTick + 1 } : {};
+      case "question.updated":
+        return d ? { detail: { ...d, questions: upsert(d.questions, m.question).sort((a, b) => a.idx - b.idx) } } : {};
       default:
         return {};
     }
@@ -167,8 +171,9 @@ function applyMessage(m: ServerMessage) {
   // Los comentarios huérfanos se recalculan en el servidor al crear una versión nueva.
   if (m.type === "artifact.created" && state.detail?.task.id === m.taskId) {
     run(reloadDetail());
-    if (m.artifact.phase !== "implement" && state.tab !== m.artifact.phase) setTab(m.artifact.phase); // seguir al artefacto nuevo
+    if (!PHASE_DEFS[m.artifact.phase].code && state.tab !== m.artifact.phase) setTab(m.artifact.phase); // seguir al artefacto nuevo
   }
+  if (m.type === "questions.changed" && state.detail?.task.id === m.taskId) run(reloadDetail());
 }
 
 export async function boot() {
@@ -190,11 +195,22 @@ export async function boot() {
 }
 
 // ---- atajos de teclado (§7) ----
-export const TAB_ORDER: Tab[] = ["spec", "research", "plan", "files", "diff"];
+/** Pestañas del flujo de la tarea activa: fases con documento, Archivos y Diff (H12). */
+export function tabOrder(workflow: string): Tab[] {
+  const phases = workflow === "freeform" ? [] : phasesOf(workflow).filter((p) => !PHASE_DEFS[p].code);
+  return [...phases, "files", "diff"];
+}
+
+/** Pestaña al abrir una tarea: la de la fase activa; Diff si la fase escribe código o la tarea terminó. */
+export function defaultTab(workflow: string, phase: string): Tab {
+  if (workflow === "freeform") return "diff";
+  return isPhase(phase) && !PHASE_DEFS[phase].code ? phase : "diff";
+}
 
 export function cycleTab() {
-  const i = TAB_ORDER.indexOf(state.tab);
-  setTab(TAB_ORDER[(i + 1) % TAB_ORDER.length]!);
+  const order = tabOrder(state.detail?.task.workflow ?? "rpi");
+  const i = order.indexOf(state.tab);
+  setTab(order[(i + 1) % order.length]!);
 }
 
 export function cycleTask(dir: 1 | -1) {
@@ -210,6 +226,8 @@ export function primaryAction() {
   const d = state.detail;
   if (!d || d.task.phase === "done") return;
   const { task } = d;
-  const verb = task.status === "awaiting_review" ? "approve" : (task.status === "idle" || task.status === "failed") && task.phase !== "spec" ? "run" : null;
+  if (task.workflow === "freeform" || !isPhase(task.phase)) return;
+  const manual = PHASE_DEFS[task.phase].kind === "manual";
+  const verb = task.status === "awaiting_review" ? "approve" : (task.status === "idle" || task.status === "failed") && !manual ? "run" : null;
   if (verb) run(api(`/api/tasks/${task.id}/phases/${task.phase}/${verb}`, { method: "POST" }).then(() => reloadDetail()));
 }

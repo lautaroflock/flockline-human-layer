@@ -5,17 +5,18 @@ import { DiffView } from "./DiffView";
 import { FilesPanel } from "./FilesPanel";
 import { CommentLayer, SelectionPopover, userColor, userName } from "./CommentLayer";
 import { Markdown, type Mark } from "./Markdown";
-import { PHASES, type Artifact, type PhaseName, type Tab } from "../../shared/types";
+import { MockupsView } from "./MockupsView";
+import { isPhase, PHASE_DEFS, phasesOf, type PhaseName } from "../../shared/workflows";
+import type { Artifact, Tab } from "../../shared/types";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "spec", label: "Spec" },
-  { id: "research", label: "Research" },
-  { id: "plan", label: "Plan" },
-  { id: "files", label: "Archivos" },
-  { id: "diff", label: "Diff" },
-];
+/** Pestañas de la tarea: las fases con documento de su flujo, más Archivos y Diff. */
+export function tabsFor(workflow: string): { id: Tab; label: string }[] {
+  const phases = workflow === "freeform" ? [] : phasesOf(workflow).filter((p) => !PHASE_DEFS[p].code);
+  return [...phases.map((p) => ({ id: p as Tab, label: PHASE_DEFS[p].label })), { id: "files", label: "Archivos" }, { id: "diff", label: "Diff" }];
+}
 
-const specTemplate = (title: string, description: string) => `# Spec: ${title}
+const TEMPLATES: Partial<Record<PhaseName, (title: string, description: string) => string>> = {
+  spec: (title, description) => `# Spec: ${title}
 
 ## Objetivo
 ${description.trim() || "Qué problema resuelve y para quién."}
@@ -29,7 +30,29 @@ ${description.trim() || "Qué problema resuelve y para quién."}
 
 ## Restricciones y notas
 -
-`;
+`,
+  prd: (title, description) => `# PRD: ${title}
+
+## Problema
+${description.trim() || "Qué dolor resolvemos y cómo lo sabemos."}
+
+## Usuarios y contexto
+-
+
+## Historias de usuario
+- Como … quiero … para …
+
+## Requisitos
+- Funcionales:
+- No funcionales:
+
+## Métricas de éxito
+-
+
+## Fuera de alcance
+-
+`,
+};
 
 /** Versión visible de un artefacto: la elegida por la persona o, por defecto, la última. */
 export function useShown(phase: PhaseName): { versions: Artifact[]; shown: Artifact | null; latest: Artifact | null } {
@@ -47,21 +70,24 @@ export function ArtifactPanel() {
   const users = useStore((s) => s.users);
   const me = useStore((s) => s.user);
   if (!detail) return <section className="right" />;
-  const phase = (PHASES as string[]).includes(tab) ? (tab as PhaseName) : "spec";
+  const tabs = tabsFor(detail.task.workflow);
+  const current = tabs.some((t) => t.id === tab) ? tab : tabs[0]!.id;
+  const phase = isPhase(current) ? current : null;
   return (
     <section className="right">
       <div className="tabs" data-testid="tabs">
-        {TABS.map((t) => (
-          <div key={t.id} className={`tab ${tab === t.id ? "on" : ""}`} onClick={() => setTab(t.id)} data-tab={t.id}>
+        {tabs.map((t) => (
+          <div key={t.id} className={`tab ${current === t.id ? "on" : ""}`} onClick={() => setTab(t.id)} data-tab={t.id}>
             {t.label}
+            {t.id === "questions" && detail.questions.length > 0 && <small> {detail.questions.filter((q) => q.status !== "open").length}/{detail.questions.length}</small>}
             {detail.presence.filter((p) => p.tab === t.id && p.user_id !== me?.id).map((p) => (
               <span key={p.user_id} style={{ color: users.find((u) => u.id === p.user_id)?.color }} title={users.find((u) => u.id === p.user_id)?.name}> ●</span>
             ))}
           </div>
         ))}
-        {tab !== "diff" && tab !== "files" && <VersionPicker phase={phase} />}
+        {phase && <VersionPicker phase={phase} />}
       </div>
-      {tab === "diff" ? <DiffView /> : tab === "files" ? <FilesPanel /> : <ArtifactView key={phase} phase={phase} />}
+      {current === "diff" ? <DiffView /> : current === "files" ? <FilesPanel /> : phase ? <ArtifactView key={phase} phase={phase} /> : null}
     </section>
   );
 }
@@ -88,67 +114,93 @@ function ArtifactView({ phase }: { phase: PhaseName }) {
   const users = useStore((s) => s.users);
   const { shown, latest } = useShown(phase);
   const [editing, setEditing] = useState(false);
+  const [view, setView] = useState<"doc" | "mockups">("doc");
   const task = detail.task;
+  const def = PHASE_DEFS[phase];
 
   // Si la fase cambia (p. ej. alguien aprobó) mientras se edita, se cierra el editor
   const isCurrent = task.phase === phase;
   const atLatest = !shown || shown.id === latest?.id;
   const canEdit =
-    isCurrent && atLatest && phase !== "implement" && (task.status === "awaiting_review" || (phase === "spec" && (task.status === "idle" || task.status === "failed")));
+    isCurrent && atLatest && !def.code && def.kind !== "questions" &&
+    (task.status === "awaiting_review" || (def.kind === "manual" && (task.status === "idle" || task.status === "failed")));
   useEffect(() => {
     if (!canEdit) setEditing(false);
   }, [canEdit]);
 
-  // Solo se comenta la última versión, de la fase activa y en revisión
-  const commentable = !!shown && atLatest && isCurrent && task.status === "awaiting_review";
+  // Solo se comenta la última versión, de la fase activa y en revisión (las preguntas se responden, no se comentan)
+  const commentable = !!shown && atLatest && isCurrent && task.status === "awaiting_review" && def.kind !== "questions";
   const marks: Mark[] = shown
     ? detail.comments
         .filter((c) => c.artifact_id === shown.id && c.status === "open")
         .map((c) => ({ quote: c.quote, color: userColor(users, c.author_id), title: `${userName(users, c.author_id)}: ${c.body}` }))
     : [];
+  const mockups = shown ? detail.artifactFiles.filter((f) => f.artifact_id === shown.id) : [];
 
   if (editing && canEdit) {
-    return <Editor phase={phase} initial={shown?.content ?? specTemplate(task.title, task.description)} baseVersion={latest?.version ?? 0} onClose={() => setEditing(false)} />;
+    const template = TEMPLATES[phase]?.(task.title, task.description) ?? "";
+    return <Editor phase={phase} initial={shown?.content ?? template} baseVersion={latest?.version ?? 0} onClose={() => setEditing(false)} />;
   }
 
   return (
     <>
-      {canEdit && shown && (
-        <div style={{ padding: "6px 22px 0", display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={() => setEditing(true)} data-testid="edit-artifact">✎ Editar</button>
+      {shown && (canEdit || mockups.length > 0) && (
+        <div style={{ padding: "6px 22px 0", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {canEdit && <button onClick={() => setEditing(true)} data-testid="edit-artifact">✎ Editar</button>}
+          {mockups.length > 0 && (
+            <span className="seg">
+              <button className={view === "doc" ? "on" : ""} onClick={() => setView("doc")}>Documento</button>
+              <button className={view === "mockups" ? "on" : ""} onClick={() => setView("mockups")} data-testid="mockups-toggle">Mockups ({mockups.length})</button>
+            </span>
+          )}
           <span style={{ color: "var(--mut)", fontSize: 12 }}>
             v{shown.version}
-            {shown.created_by ? ` · editada por ${userName(users, shown.created_by)}` : phase === "spec" ? "" : " · generada por el agente"}
+            {shown.created_by ? ` · editada por ${userName(users, shown.created_by)}` : def.kind === "manual" ? " · importada" : " · generada por el agente"}
           </span>
         </div>
       )}
-      <div className="doc" data-testid="doc">
-        {shown ? (
-          <Markdown source={shown.content} marks={marks} />
-        ) : phase === "spec" ? (
-          <div className="empty">
-            <p>La etapa Spec la escriben las personas, no el agente.</p>
-            <p style={{ fontSize: 12 }}>Definí objetivo, alcance y criterios de aceptación; después se aprueba y alimenta Research, Plan e Implement.</p>
-            <button className="pri" disabled={!canEdit} onClick={() => setEditing(true)} data-testid="write-spec">✎ Escribir spec</button>
-          </div>
-        ) : (
-          <p className="empty">{phase}.md aún no existe. Ejecutá la fase.</p>
-        )}
-      </div>
-      <SelectionPopover phase={phase} enabled={commentable} />
-      <CommentLayer artifact={shown} phase={phase} commentable={commentable} />
+      {view === "mockups" && shown && mockups.length > 0 ? (
+        <MockupsView artifactId={shown.id} files={mockups.map((m) => m.path)} />
+      ) : (
+        <div className="doc" data-testid="doc">
+          {shown ? (
+            <Markdown source={shown.content} marks={marks} />
+          ) : def.kind === "manual" ? (
+            <div className="empty">
+              <p>La etapa {def.label} la escriben las personas, no el agente.</p>
+              <p style={{ fontSize: 12 }}>{def.description} Después se aprueba y alimenta las fases siguientes.</p>
+              <button className="pri" disabled={!canEdit} onClick={() => setEditing(true)} data-testid="write-spec">✎ Escribir {def.label.toLowerCase()}</button>
+            </div>
+          ) : (
+            <p className="empty">{def.artifact} aún no existe. Ejecutá la fase.</p>
+          )}
+        </div>
+      )}
+      {view === "doc" && def.kind !== "questions" && (
+        <>
+          <SelectionPopover phase={phase} enabled={commentable} />
+          <CommentLayer artifact={shown} phase={phase} commentable={commentable} />
+        </>
+      )}
     </>
   );
 }
 
+/** Editor con vista previa en vivo (H14): los diagramas Mermaid se ven mientras se escriben. */
 function Editor({ phase, initial, baseVersion, onClose }: { phase: PhaseName; initial: string; baseVersion: number; onClose: () => void }) {
   const detail = useStore((s) => s.detail)!;
   const me = useStore((s) => s.user)!;
   const latest = useStore((s) => s.detail?.artifacts.filter((a) => a.phase === phase).reduce((m, a) => Math.max(m, a.version), 0) ?? 0);
   const [text, setText] = useState(initial);
+  const [preview, setPreview] = useState(initial);
   const [busy, setBusy] = useState(false);
   const stale = latest !== baseVersion; // otra persona guardó mientras editabas
   const dirty = text !== initial;
+
+  useEffect(() => {
+    const t = setTimeout(() => setPreview(text), 350);
+    return () => clearTimeout(t);
+  }, [text]);
 
   async function save() {
     setBusy(true);
@@ -165,7 +217,7 @@ function Editor({ phase, initial, baseVersion, onClose }: { phase: PhaseName; in
   return (
     <div className="doc" style={{ display: "flex", flexDirection: "column", gap: 8 }} data-testid="editor">
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <b>Editando {phase}</b>
+        <b>Editando {PHASE_DEFS[phase].label}</b>
         <span style={{ color: "var(--mut)", fontSize: 12 }}>base v{baseVersion || "—"} · se guarda como {me.name}</span>
         <span style={{ flex: 1 }} />
         <button onClick={() => (!dirty || confirm("¿Descartar los cambios?")) && onClose()}>Cancelar</button>
@@ -174,20 +226,24 @@ function Editor({ phase, initial, baseVersion, onClose }: { phase: PhaseName; in
         </button>
       </div>
       {stale && <div style={{ color: "var(--warn)", fontSize: 12 }}>Otra persona guardó la v{latest} mientras editabas: al guardar vas a recibir un conflicto. Copiá tu texto y volvé a abrir el editor.</div>}
-      <textarea
-        autoFocus
-        value={text}
-        spellCheck={false}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.ctrlKey && e.key === "Enter") {
-            e.preventDefault();
-            if (!busy && text.trim()) void save();
-          }
-        }}
-        style={{ flex: 1, minHeight: 320, fontFamily: "ui-monospace,Consolas,monospace", fontSize: 13, lineHeight: 1.5, resize: "none" }}
-        data-testid="editor-text"
-      />
+      <div className="split">
+        <textarea
+          autoFocus
+          value={text}
+          spellCheck={false}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.ctrlKey && e.key === "Enter") {
+              e.preventDefault();
+              if (!busy && text.trim()) void save();
+            }
+          }}
+          data-testid="editor-text"
+        />
+        <div className="preview" data-testid="editor-preview">
+          <Markdown source={preview} />
+        </div>
+      </div>
     </div>
   );
 }

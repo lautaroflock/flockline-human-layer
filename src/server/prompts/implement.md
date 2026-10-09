@@ -1,13 +1,10 @@
-Estás en la fase IMPLEMENT. Ejecutá el plan aprobado paso por paso, sin desviarte.
+Estás en la fase IMPLEMENT. Ejecutá lo aprobado (plan, outline o, si no hay ninguno, la spec) paso por paso, sin desviarte.
 
 # Tarea
 **{{title}}**
 
-# Spec aprobada (definida por las personas)
-{{spec}}
-
-# Plan aprobado
-{{plan}}
+# Entradas aprobadas (spec, plan u outline, y lo que corresponda al flujo)
+{{inputs}}
 
 # Reglas
 - Trabajá solo dentro del directorio actual (el worktree de esta tarea).

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { useStore } from "../store";
+import { loadEvents, run, setState, useStore } from "../store";
+import { isPhase, PHASE_DEFS } from "../../shared/workflows";
 import type { AgentEventRow } from "../../shared/types";
 
 const parse = (e: AgentEventRow) => JSON.parse(e.payload) as Record<string, any>;
@@ -13,18 +14,27 @@ export function SessionLog() {
   const detail = useStore((s) => s.detail);
   const events = useStore((s) => s.events);
   const end = useRef<HTMLDivElement>(null);
-  const session = detail?.sessions[detail.sessions.length - 1];
+  const chosen = useStore((s) => s.viewSession);
+  const session = detail?.sessions.find((x) => x.id === chosen) ?? detail?.sessions[detail.sessions.length - 1];
   const rows = session ? events[session.id] ?? [] : [];
 
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" });
   }, [rows.length]);
+  // Una sesión vieja elegida en el selector carga su historial (replay)
+  useEffect(() => {
+    if (session && !events[session.id]) run(loadEvents(session.id));
+  }, [session?.id]);
 
   if (!session)
     return (
       <div className="log">
         <p className="empty">
-          {detail?.task.phase === "spec" ? "La etapa Spec se escribe a mano: abrí la pestaña Spec, redactala y aprobala." : "Sin sesión activa. Ejecutá la fase."}
+          {detail && isPhase(detail.task.phase) && PHASE_DEFS[detail.task.phase].kind === "manual"
+            ? `La etapa ${PHASE_DEFS[detail.task.phase].label} se escribe a mano: abrí su pestaña, redactala y aprobala.`
+            : detail?.task.workflow === "freeform"
+              ? "Escribí un pedido arriba para abrir la primera sesión."
+              : "Sin sesión activa. Ejecutá la fase."}
         </p>
       </div>
     );
@@ -34,6 +44,16 @@ export function SessionLog() {
 
   return (
     <div className="log" data-testid="session-log">
+      {detail!.sessions.length > 1 && (
+        <div className="seg" style={{ marginBottom: 8, flexWrap: "wrap" }}>
+          {detail!.sessions.map((x, i) => (
+            <button key={x.id} className={x.id === session.id ? "on" : ""} onClick={() => setState({ viewSession: x.id })} title={`${x.kind} · ${x.status}`}>
+              {i + 1}. {isPhase(x.phase) ? PHASE_DEFS[x.phase].label : x.phase}
+              {x.kind === "revise" ? " (rev.)" : ""}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mut" style={{ color: "var(--mut)", fontSize: 12, marginBottom: 8 }}>
         Sesión {session.kind === "revise" ? "de revisión" : "de ejecución"} · {session.phase} · {session.status}
         {session.num_turns != null && ` · ${session.num_turns} turnos`}
@@ -68,7 +88,13 @@ export function SessionLog() {
               </details>
             </div>
           );
-        if (e.type === "system") return null;
+        if (e.type === "system")
+          return p.userPrompt ? (
+            <div key={e.id} className="ev assistant_text">
+              <div className="h">pedido</div>
+              {p.userPrompt}
+            </div>
+          ) : null;
         const label = { assistant_text: "asistente", result: "resultado", error: "error" }[e.type as string] ?? e.type;
         const text = e.type === "result" ? `Fase terminada · ${p.num_turns} turnos${p.total_cost_usd ? ` · $${Number(p.total_cost_usd).toFixed(2)}` : ""}${p.mock ? " (mock)" : ""}` : p.text ?? p.message;
         return (

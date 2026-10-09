@@ -28,6 +28,46 @@ function applyMarks(root: HTMLElement, marks: Mark[]) {
   }
 }
 
+// ---- diagramas Mermaid (H14): la librería se carga solo si el documento tiene alguno ----
+type MermaidApi = { initialize(c: object): void; render(id: string, code: string): Promise<{ svg: string }> };
+let mermaidLoad: Promise<MermaidApi> | null = null;
+function loadMermaid(): Promise<MermaidApi> {
+  mermaidLoad ??= import("mermaid").then((m) => {
+    const api = m.default as unknown as MermaidApi;
+    // strict: sin HTML ni clics en las etiquetas; tema oscuro como la app
+    api.initialize({ startOnLoad: false, securityLevel: "strict", theme: "dark", fontFamily: "system-ui, sans-serif" });
+    return api;
+  });
+  return mermaidLoad;
+}
+let diagramSeq = 0;
+
+async function renderDiagrams(root: HTMLElement, isStale: () => boolean) {
+  const blocks = [...root.querySelectorAll("pre > code.language-mermaid")] as HTMLElement[];
+  if (blocks.length === 0) return;
+  const mermaid = await loadMermaid();
+  for (const code of blocks) {
+    if (isStale()) return;
+    const pre = code.parentElement!;
+    const source = code.textContent ?? "";
+    const box = document.createElement("div");
+    box.className = "diagram";
+    try {
+      const { svg } = await mermaid.render(`mmd-${++diagramSeq}`, source);
+      if (isStale()) return;
+      box.innerHTML = svg;
+    } catch (e) {
+      box.className = "diagram error";
+      const warn = document.createElement("div");
+      warn.textContent = `No se pudo dibujar el diagrama: ${e instanceof Error ? e.message.split("\n")[0] : e}`;
+      const raw = document.createElement("pre");
+      raw.textContent = source;
+      box.append(warn, raw);
+    }
+    pre.replaceWith(box);
+  }
+}
+
 /**
  * Markdown renderizado a HTML estático e inyectado por ref: así las marcas de comentarios (que mutan el DOM)
  * no entran en conflicto con la reconciliación de React. react-markdown no admite HTML crudo, por lo que es seguro.
@@ -37,9 +77,15 @@ export function Markdown({ source, marks = [], onMouseUp }: { source: string; ma
   const html = useMemo(() => renderToStaticMarkup(<ReactMarkdown remarkPlugins={[remarkGfm]}>{source}</ReactMarkdown>), [source]);
   const key = JSON.stringify(marks);
   useLayoutEffect(() => {
-    if (!ref.current) return;
-    ref.current.innerHTML = html;
-    applyMarks(ref.current, marks);
+    const el = ref.current;
+    if (!el) return;
+    let stale = false;
+    el.innerHTML = html;
+    applyMarks(el, marks);
+    void renderDiagrams(el, () => stale);
+    return () => {
+      stale = true;
+    };
   }, [html, key]);
   return <div ref={ref} onMouseUp={onMouseUp} data-testid="markdown" />;
 }
