@@ -1,6 +1,6 @@
 import { query, type HookCallback, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { delimiter, dirname, join, relative } from "node:path";
 import { config } from "./config";
 import { checkTool, TOOLS, type GuardCtx } from "./guard";
 import type { EventType, PhaseName, SessionKind } from "../shared/types";
@@ -72,6 +72,39 @@ function repoInstructions(wt: string): string {
   }
 }
 
+/** Topes por fase en modo real: la sesión corta con `error_max_turns` o `error_max_budget_usd`. AGENT_BUDGET_SCALE los escala. */
+export const PHASE_LIMITS: Record<PhaseName, { turns: number; usd: number }> = {
+  spec: { turns: 1, usd: 0 },
+  prd: { turns: 1, usd: 0 },
+  questions: { turns: 20, usd: 0.6 },
+  research: { turns: 40, usd: 1.5 },
+  design: { turns: 30, usd: 1.2 },
+  structure: { turns: 25, usd: 1 },
+  outline: { turns: 20, usd: 0.8 },
+  plan: { turns: 25, usd: 1 },
+  implement: { turns: 80, usd: 3 },
+  freeform: { turns: 40, usd: 1.5 },
+};
+const budgetScale = () => {
+  const n = Number(process.env.AGENT_BUDGET_SCALE ?? 1);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+};
+
+/** Entorno del agente: el del servidor + el binario de Bun en el PATH, para que pueda correr `bun test` aunque Bun no esté instalado global. */
+function agentEnv(): Record<string, string | undefined> {
+  const env = { ...process.env };
+  const key = Object.keys(env).find((k) => k.toLowerCase() === "path") ?? "PATH";
+  env[key] = `${dirname(process.execPath)}${delimiter}${env[key] ?? ""}`;
+  return env;
+}
+
+const RESULT_ERRORS: Record<string, string> = {
+  error_max_turns: "El agente llegó al tope de turnos de la fase",
+  error_max_budget_usd: "El agente llegó al tope de costo de la fase",
+  error_during_execution: "El agente falló durante la ejecución",
+  error_max_structured_output_retries: "El agente no logró devolver la salida estructurada pedida",
+};
+
 /**
  * Opciones del SDK con la guarda realmente aplicada:
  * - `tools` limita qué herramientas existen en la fase.
@@ -87,10 +120,14 @@ export function realOptions(o: Pick<AgentRunOpts, "phase" | "slug" | "worktree" 
     const r = checkTool(ctx, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
     return r.ok ? {} : { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: r.reason } };
   };
+  const limit = PHASE_LIMITS[o.phase];
   return {
     cwd: o.worktree,
     abortController: o.abortController,
     model: config.claudeModel,
+    env: agentEnv(),
+    maxTurns: limit.turns,
+    maxBudgetUsd: Math.round(limit.usd * budgetScale() * 100) / 100,
     tools: TOOLS[o.phase],
     allowedTools: [],
     permissionMode: "default",
@@ -131,7 +168,8 @@ async function* runReal(o: AgentRunOpts): AsyncGenerator<AgentOut> {
       yield {
         type: "result",
         payload: {
-          subtype: m.subtype, is_error: m.is_error, num_turns: m.num_turns, total_cost_usd: m.total_cost_usd, text: "result" in m ? clip(String(m.result)) : "",
+          subtype: m.subtype, is_error: m.is_error || m.subtype !== "success", num_turns: m.num_turns, total_cost_usd: m.total_cost_usd,
+          text: "result" in m ? clip(String(m.result)) : RESULT_ERRORS[m.subtype] ?? `El agente terminó con ${m.subtype}`,
           ...("structured_output" in m && m.structured_output ? { structured: m.structured_output } : {}),
         },
         sdkSessionId: m.session_id,

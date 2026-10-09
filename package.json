@@ -10,7 +10,8 @@
     "e2e": "bun scripts/e2e.ts",
     "test": "bun test tests/",
     "check:real": "bun scripts/real-guard-check.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "e2e:real": "bun scripts/e2e-real.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

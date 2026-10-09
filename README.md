@@ -19,12 +19,16 @@ cp .env.example .env   # opcional
 npx bun run dev        # http://localhost:3000
 npx bun run seed       # crea el repo de ejemplo y la tarea demo (con el servidor corriendo)
 npx bun run e2e        # guion completo en modo mock, dos usuarios, sin tocar la UI
+npx bun run e2e:real   # test interno con el Agent SDK REAL (gasta tokens, con topes por fase)
 npx bun run typecheck
 ```
 
 Entrás con un nombre (sin contraseñas). Abrí la URL en dos navegadores con nombres distintos para ver presencia, comentarios y aprobaciones con autor.
 
 ### Agente mock vs. real
+
+`bun run e2e:real` levanta un servidor con `AGENT_MODE=real` y recorre RPI completo (research, plan, revisión con comentario, implement), QRSPI hasta Design y una sesión Freeform con el agente de verdad. Verifica estructura (artefactos, diff en `src/`, `bun test` que pasa, guarda) y al final imprime el costo. Se puede elegir qué correr: `bun scripts/e2e-real.ts rpi`. Cada fase tiene tope de turnos y de US$ (`PHASE_LIMITS`), escalable con `AGENT_BUDGET_SCALE`.
+
 
 `AGENT_MODE=mock` (por defecto) ejecuta un agente guionado que **escribe archivos reales** en el worktree, sin gastar tokens; sirve para ensayar la demo (usa el repo de `seed`). `AGENT_MODE=real` usa el Claude Agent SDK con `cwd` en el worktree, una sesión por fase y `canUseTool` con las mismas reglas de seguridad.
 

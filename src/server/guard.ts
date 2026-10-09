@@ -54,7 +54,11 @@ function checkBash(command: string): GuardResult {
   return { ok: true };
 }
 
+/** Herramientas internas del SDK sin efectos (p. ej. la que entrega la salida estructurada de `outputFormat`). */
+const SDK_INTERNAL = new Set(["StructuredOutput"]);
+
 export function checkTool(ctx: GuardCtx, tool: string, input: Record<string, unknown>): GuardResult {
+  if (SDK_INTERNAL.has(tool)) return { ok: true };
   if (!TOOLS[ctx.phase].includes(tool)) return deny(`La herramienta ${tool} no está permitida en ${ctx.phase}`);
 
   switch (tool) {

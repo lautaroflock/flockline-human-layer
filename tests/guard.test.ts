@@ -67,6 +67,9 @@ describe("extensiones en .flock/ (H14)", () => {
     for (const f of ["x.exe", "script.js", "datos.json", "sin-extension"]) expect(ok(design, "Write", { file_path: `.flock/t1/${f}` })).toBe(false);
     expect(ok(implement, "Write", { file_path: ".flock/t1/x.sh" })).toBe(false);
   });
+  test("Questions puede entregar su salida estructurada (StructuredOutput del SDK)", () => {
+    expect(ok({ phase: "questions", slug: "t1", worktree: wt }, "StructuredOutput", { questions: [] })).toBe(true);
+  });
   test("Questions no escribe archivos", () => {
     expect(ok({ phase: "questions", slug: "t1", worktree: wt }, "Write", { file_path: ".flock/t1/questions.md" })).toBe(false);
   });
