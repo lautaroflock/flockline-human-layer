@@ -112,7 +112,7 @@ export function CommentLayer({ artifact, phase, commentable }: { artifact: Artif
           </div>
         </div>
       )}
-      {commentable && (
+      {commentable && phase !== "spec" && (
         <button
           className="pri"
           data-testid="send-comments"

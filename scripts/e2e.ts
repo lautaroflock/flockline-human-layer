@@ -67,6 +67,26 @@ async function until(pred: () => boolean, what: string, ms = 20000) {
   }
 }
 
+const SPEC = `# Spec: limitar intentos de login
+
+## Objetivo
+Evitar fuerza bruta sobre el login limitando los intentos por IP.
+
+## Alcance
+- Dentro: 5 intentos por minuto por IP, respuesta 429 con Retry-After.
+- Fuera: rate limiting distribuido.
+
+## Criterios de aceptación
+- [ ] El sexto intento devuelve 429.
+`;
+
+/** Etapa Spec manual: una persona la escribe y otra la aprueba. */
+async function specAndApprove(writer: Client, approver: Client, taskId: string) {
+  const w = await writer.api(`/api/tasks/${taskId}/phases/spec/artifact`, "PUT", { content: SPEC, baseVersion: 0 });
+  const a = await approver.api(`/api/tasks/${taskId}/phases/spec/approve`, "POST");
+  return { w, a };
+}
+
 const git = (cwd: string, ...args: string[]) => {
   const p = Bun.spawnSync(["git", ...args], { cwd });
   return p.stdout.toString().trim();
@@ -96,6 +116,7 @@ async function main() {
   const task = created.data;
   check("crear tarea → 200", created.status === 200, JSON.stringify(created.data));
   const wt = task.worktree_path!;
+  check("la tarea nueva arranca en la etapa Spec", task.phase === "spec" && task.status === "idle");
   check("worktree y rama flock/<slug>", existsSync(wt) && task.branch === `flock/${task.slug}` && git(repo, "worktree", "list").includes(task.slug));
   check("rama principal intacta", git(repo, "rev-parse", "main") === mainHead && git(repo, "branch", "--show-current") === "main" && git(repo, "status", "--short") === "");
   lau.ws.send(JSON.stringify({ type: "subscribe", taskId: task.id }));
@@ -106,6 +127,10 @@ async function main() {
   section("H3/H4 · fases, streaming y gates");
   const early = await lau.api(`/api/tasks/${task.id}/phases/plan/run`, "POST");
   check("run plan sin research aprobado → 409 (validado en servidor)", early.status === 409, JSON.stringify(early.data));
+  const noSpec = await lau.api(`/api/tasks/${task.id}/phases/research/run`, "POST");
+  check("research sin spec aprobada → 409", noSpec.status === 409, JSON.stringify(noSpec.data));
+  const sp = await specAndApprove(lau, ana, task.id);
+  check("spec escrita a mano (Lautaro) y aprobada (Ana)", sp.w.status === 200 && sp.a.status === 200 && sp.a.data.phase === "research", `${sp.w.status} ${sp.a.status}`);
   const r1 = await lau.api(`/api/tasks/${task.id}/phases/research/run`, "POST");
   check("run research → sesión", r1.status === 200 && r1.data.status === "running");
   const dup = await ana.api(`/api/tasks/${task.id}/phases/research/run`, "POST");
@@ -114,9 +139,9 @@ async function main() {
   const evOf = (c: Client) => c.msgs.filter((m) => m.type === "session.event").length;
   check("ambos usuarios reciben los mismos eventos en vivo", evOf(lau) > 5 && evOf(lau) === evOf(ana), `${evOf(lau)} vs ${evOf(ana)}`);
   const researchPath = join(wt, ".flock", task.slug, "research.md");
-  check("research.md escrito en el worktree", existsSync(researchPath) && readFileSync(researchPath, "utf8").includes("rateLimit"));
+  check("research.md escrito en el worktree y cita la spec aprobada", existsSync(researchPath) && readFileSync(researchPath, "utf8").includes("rateLimit") && readFileSync(researchPath, "utf8").includes("Spec aprobada"));
   let det = (await lau.api<TaskDetail>(`/api/tasks/${task.id}`)).data;
-  check("research v1 y estado awaiting_review", det.artifacts.length === 1 && det.task.status === "awaiting_review");
+  check("research v1 y estado awaiting_review", det.artifacts.filter((a) => a.phase === "research").length === 1 && det.task.status === "awaiting_review");
   const evs = await lau.api<any[]>(`/api/sessions/${det.sessions[0]!.id}/events`);
   check("historial de eventos persistido (replay)", evs.data.length > 5 && evs.data.some((e) => e.type === "tool_use"));
 
@@ -125,7 +150,8 @@ async function main() {
   const ap = await ana.api(`/api/tasks/${task.id}/phases/research/approve`, "POST");
   check("aprobar research (como Ana)", ap.status === 200 && ap.data.phase === "plan" && ap.data.status === "idle");
   det = (await lau.api<TaskDetail>(`/api/tasks/${task.id}`)).data;
-  check("approved_by queda registrado", det.artifacts[0]!.approved === 1 && det.artifacts[0]!.approved_by === ana.user.id);
+  const resArt = det.artifacts.find((a) => a.phase === "research")!;
+  check("approved_by queda registrado", resArt.approved === 1 && resArt.approved_by === ana.user.id);
   const ap2 = await lau.api(`/api/tasks/${task.id}/phases/research/approve`, "POST");
   check("aprobar de nuevo → 409", ap2.status === 409);
 
@@ -195,6 +221,7 @@ async function main() {
   section("H7 · abortar, tareas en paralelo y reinicio del servidor");
   const slow = (await lau.api<Task>("/api/tasks", "POST", { title: "Tarea lenta [lento]", description: "", repoPath: repo })).data;
   lau.ws.send(JSON.stringify({ type: "subscribe", taskId: slow.id }));
+  await specAndApprove(lau, ana, slow.id);
   const sl = await lau.api(`/api/tasks/${slow.id}/phases/research/run`, "POST");
   await sleep(300);
   const ab = await ana.api(`/api/sessions/${sl.data.id}/abort`, "POST");
@@ -202,13 +229,16 @@ async function main() {
   await until(() => lau.msgs.some((m) => m.type === "session.ended" && m.session.id === sl.data.id && m.session.status === "aborted"), "sesión abortada");
   await sleep(100);
   const slowDet = (await lau.api<TaskDetail>(`/api/tasks/${slow.id}`)).data;
-  check("tras abortar la fase vuelve a idle y se puede reintentar", slowDet.task.status === "idle" && slowDet.artifacts.length === 0);
+  check("tras abortar la fase vuelve a idle y se puede reintentar", slowDet.task.status === "idle" && slowDet.artifacts.filter((a) => a.phase === "research").length === 0);
   const abAgain = await lau.api(`/api/sessions/${sl.data.id}/abort`, "POST");
   check("abortar una sesión terminada → 409", abAgain.status === 409);
 
   const pa = (await lau.api<Task>("/api/tasks", "POST", { title: "Paralela A", description: "", repoPath: repo })).data;
   const pb = (await ana.api<Task>("/api/tasks", "POST", { title: "Paralela B", description: "", repoPath: repo })).data;
-  for (const t of [pa, pb]) lau.ws.send(JSON.stringify({ type: "subscribe", taskId: t.id }));
+  for (const t of [pa, pb]) {
+    lau.ws.send(JSON.stringify({ type: "subscribe", taskId: t.id }));
+    await specAndApprove(lau, ana, t.id);
+  }
   await sleep(100);
   const from = lau.msgs.length;
   const [ra, rb] = await Promise.all([lau.api(`/api/tasks/${pa.id}/phases/research/run`, "POST"), ana.api(`/api/tasks/${pb.id}/phases/research/run`, "POST")]);
@@ -242,13 +272,13 @@ async function main() {
   const users = (await ana2.api<any[]>("/api/users")).data;
   check("/api/users informa quién está conectado", users.find((u) => u.id === lau.user.id)?.online === true);
 
-  const spoof = await ana2.api<any>(`/api/artifacts/${(await ana2.api<TaskDetail>(`/api/tasks/${pa.id}`)).data.artifacts[0]!.id}/comments`, "POST", { quote: "rateLimit", body: "firmado por Ana", author_id: lau.user.id });
+  const spoof = await ana2.api<any>(`/api/artifacts/${(await ana2.api<TaskDetail>(`/api/tasks/${pa.id}`)).data.artifacts.find((a) => a.phase === "research")!.id}/comments`, "POST", { quote: "rateLimit", body: "firmado por Ana", author_id: lau.user.id });
   check("el autor sale del token: no se puede falsificar", spoof.status === 200 && spoof.data.author_id === ana2.user.id);
 
   const [x1, x2] = await Promise.all([lau2.api(`/api/tasks/${pa.id}/phases/research/approve`, "POST"), ana2.api(`/api/tasks/${pa.id}/phases/research/approve`, "POST")]);
   check("dos aprobaciones simultáneas → una sola transición (200 + 409)", [x1.status, x2.status].sort().join() === "200,409", `${x1.status},${x2.status}`);
   const paDet = (await lau2.api<TaskDetail>(`/api/tasks/${pa.id}`)).data;
-  check("la tarea avanzó una única fase", paDet.task.phase === "plan" && paDet.artifacts.filter((a) => a.approved).length === 1);
+  check("la tarea avanzó una única fase", paDet.task.phase === "plan" && paDet.artifacts.filter((a) => a.approved).length === 2); // spec + research
   const act = (await lau2.api<any[]>(`/api/tasks/${pa.id}/activity`)).data;
   check("feed de actividad con autor por acción", act.some((a) => a.kind === "phase.run") && act.some((a) => a.kind === "phase.approved") && act.some((a) => a.kind === "comment.created" && a.user_id === ana.user.id));
   check("activity.added llega en vivo", ana2.msgs.some((m) => m.type === "activity.added"));
@@ -284,9 +314,67 @@ async function main() {
   const bin = await f("bin.dat");
   check("binario devuelve solo metadatos", bin.data.binary === true && bin.data.content === null);
   const cm = (await lau2.api<{ subject: string; author: string }[]>(`/api/tasks/${task.id}/commits`)).data;
-  check("commits de fase con autor", cm.length === 3 && cm.some((c) => c.subject.startsWith("research:") && c.author === "Ana") && cm.some((c) => c.subject.startsWith("implement:")), JSON.stringify(cm));
+  check("commits de fase con autor", cm.length === 4 && cm.some((c) => c.subject.startsWith("spec:")) && cm.some((c) => c.subject.startsWith("research:") && c.author === "Ana") && cm.some((c) => c.subject.startsWith("implement:")), JSON.stringify(cm));
   check("worktree.changed se emitió durante la ejecución", lau.msgs.some((m) => m.type === "worktree.changed"));
 
+
+  // ───────── H10 etapa Spec manual y edición de artefactos
+  section("H10 · spec manual y edición de artefactos");
+  const ed = (await lau2.api<Task>("/api/tasks", "POST", { title: "Edición [lento]", description: "tarea para probar la edición manual", repoPath: repo })).data;
+  lau2.ws.send(JSON.stringify({ type: "subscribe", taskId: ed.id }));
+  const run = (c: Client, phase: string, verb: string) => c.api(`/api/tasks/${ed.id}/phases/${phase}/${verb}`, "POST");
+  const put = (c: Client, phase: string, content: string, baseVersion: number) => c.api<any>(`/api/tasks/${ed.id}/phases/${phase}/artifact`, "PUT", { content, baseVersion });
+  const detail = async () => (await lau2.api<TaskDetail>(`/api/tasks/${ed.id}`)).data;
+
+  check("research antes de la spec → 409", (await run(lau2, "research", "run")).status === 409);
+  check("run sobre spec → 400 (no hay agente)", (await run(lau2, "spec", "run")).status === 400);
+  check("revise sobre spec → 400", (await run(lau2, "spec", "revise")).status === 400);
+  check("aprobar spec sin texto → 409", (await run(ana2, "spec", "approve")).status === 409);
+  check("texto vacío → 400", (await put(lau2, "spec", "   ", 0)).status === 400);
+
+  const v1 = await put(lau2, "spec", SPEC, 0);
+  check("guardar la spec crea v1 con su autor", v1.status === 200 && v1.data.version === 1 && v1.data.created_by === lau2.user.id);
+  check("la spec se escribe en el worktree", readFileSync(join(ed.worktree_path!, ".flock", ed.slug, "spec.md"), "utf8") === SPEC);
+  check("tras guardar, la spec queda en awaiting_review", (await detail()).task.status === "awaiting_review");
+  const clash = await put(ana2, "spec", SPEC + "\n- otra", 0);
+  check("baseVersion viejo → 409 (alguien editó antes)", clash.status === 409, JSON.stringify(clash.data));
+  check("sin cambios → 400", (await put(lau2, "spec", SPEC, 1)).status === 400);
+
+  const specArt = (await detail()).artifacts.find((a) => a.phase === "spec")!;
+  const keep = await ana2.api<any>(`/api/artifacts/${specArt.id}/comments`, "POST", { quote: "Evitar fuerza bruta", body: "¿y la API pública?" });
+  const lose = await ana2.api<any>(`/api/artifacts/${specArt.id}/comments`, "POST", { quote: "rate limiting distribuido", body: "ok" });
+  check("se puede comentar la spec", keep.status === 200 && lose.status === 200);
+  const edited = SPEC.replace("rate limiting distribuido", "límites por usuario") + "\n- [ ] Documentar el cambio.\n";
+  const v2 = await put(ana2, "spec", edited, 1);
+  check("otra persona edita → v2 con su autor", v2.status === 200 && v2.data.version === 2 && v2.data.created_by === ana2.user.id);
+  const dd = await detail();
+  const mc = dd.comments.find((c) => c.id === keep.data.id)!;
+  const lc = dd.comments.find((c) => c.id === lose.data.id)!;
+  check("el comentario cuya cita sigue en el texto migra a la versión nueva", mc.artifact_id === v2.data.id);
+  check("el comentario cuya cita se borró queda en la versión vieja", lc.artifact_id === specArt.id);
+  check("la edición queda en el feed de actividad", (await lau2.api<any[]>(`/api/tasks/${ed.id}/activity`)).data.some((a) => a.kind === "artifact.edited"));
+  check("artifact.created llega en vivo con la versión editada", ana2.msgs.some((m) => m.type === "artifact.created" && m.artifact.phase === "spec" && m.artifact.version === 2) || lau2.msgs.some((m) => m.type === "artifact.created" && m.artifact.phase === "spec" && m.artifact.version === 2));
+
+  check("aprobar la spec avanza a research", (await run(lau2, "spec", "approve")).status === 200 && (await detail()).task.phase === "research");
+  check("la spec aprobada ya no se edita", (await put(lau2, "spec", edited + "x", 2)).status === 409);
+  await run(lau2, "research", "run");
+  const mid = await put(lau2, "research", "# cambio durante la ejecución", 0);
+  check("editar mientras corre una sesión → 409", mid.status === 409, JSON.stringify(mid.data));
+  await phaseDone(lau2, ed.id, "research", 1);
+  const resText = (await detail()).artifacts.find((a) => a.phase === "research")!.content;
+  check("research recibe la spec editada (v2) y no la original", resText.includes("límites por usuario") && !resText.includes("rate limiting distribuido"));
+  const r2 = await put(ana2, "research", resText + "\n## Nota de Ana\nRevisar el proxy inverso.\n", 1);
+  check("editar el research a mano crea v2 con el autor", r2.status === 200 && r2.data.version === 2 && r2.data.created_by === ana2.user.id);
+  check("el texto editado se escribe en el worktree", readFileSync(join(ed.worktree_path!, ".flock", ed.slug, "research.md"), "utf8").includes("Nota de Ana"));
+  check("editar una fase que no es la activa → 409", (await put(lau2, "plan", "# x", 0)).status === 409);
+  check("editar implement → 400", (await put(lau2, "implement", "# x", 0)).status === 400);
+  const apRes = await run(lau2, "research", "approve");
+  check("aprobar research editado → commit con el texto nuevo", apRes.status === 200 && git(ed.worktree_path!, "show", "HEAD:.flock/" + ed.slug + "/research.md").includes("Nota de Ana"));
+  await run(lau2, "plan", "run");
+  await phaseDone(lau2, ed.id, "plan", 1);
+  const planV1 = (await detail()).artifacts.find((a) => a.phase === "plan")!;
+  const p2 = await put(lau2, "plan", planV1.content + "\n## Rollback\nRevertir el commit.\n", 1);
+  check("editar el plan a mano y revisar versiones", p2.status === 200 && (await lau2.api<any[]>(`/api/tasks/${ed.id}/artifacts/plan/versions`)).data.length === 2);
 
   await stopServer();
   rmSync(tmp, { recursive: true, force: true });

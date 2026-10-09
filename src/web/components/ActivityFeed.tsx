@@ -11,6 +11,7 @@ const VERB: Record<string, (p: any) => string> = {
   "phase.aborted": (p) => `abortó ${p?.phase}`,
   "comment.created": (p) => `comentó en ${p?.phase}`,
   "comment.resolved": (p) => `resolvió un comentario en ${p?.phase}`,
+  "artifact.edited": (p) => `editó ${p?.phase} (v${p?.version})`,
   "comments.sent": (p) => `envió ${p?.count} comentario(s) al agente (${p?.phase})`,
 };
 

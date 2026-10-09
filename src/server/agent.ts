@@ -29,6 +29,14 @@ export interface AgentOut {
 
 export const artifactRel = (phase: PhaseName, slug: string) => `.flock/${slug}/${phase === "implement" ? "summary" : phase}.md`;
 
+const specOf = (wt: string, slug: string) => {
+  try {
+    return readFileSync(join(wt, ".flock", slug, "spec.md"), "utf8");
+  } catch {
+    return "";
+  }
+};
+
 export function runAgent(o: AgentRunOpts): AsyncGenerator<AgentOut> {
   return config.agentMode === "real" ? runReal(o) : runMock(o);
 }
@@ -146,7 +154,7 @@ async function* runMock(o: AgentRunOpts): AsyncGenerator<AgentOut> {
     for (const f of hitList.slice(0, 3)) yield* tool(o, "Read", { file_path: f }, () => clip(readFileSync(join(wt, f), "utf8"), 1200));
     const hasLimiter = flist.includes("src/middleware/rateLimit.ts");
     yield* say(o, "assistant_text", hasLimiter ? "Existe un middleware de rate limit sin uso. Redacto research.md." : "Tengo lo necesario. Redacto research.md.");
-    const md = researchDoc(o, flist, hitList, hasLimiter);
+    const md = researchDoc(o, flist, hitList, hasLimiter, specOf(wt, o.slug));
     yield* tool(o, "Write", { file_path: art, content: md }, () => (writeFileSync(absArt, md), `Escrito ${art} (${md.length} bytes)`), true);
     turns = 6 + hitList.slice(0, 3).length;
   } else if (o.phase === "plan") {
@@ -236,12 +244,16 @@ test("otra IP no se ve afectada", () => {
   return true;
 }
 
-function researchDoc(o: AgentRunOpts, files: string[], hits: string[], hasLimiter: boolean): string {
+/** Las primeras líneas no vacías de la spec aprobada, para citarla en el research. */
+const specSummary = (spec: string) =>
+  spec.trim() ? `\n## Spec aprobada (resumen)\n${spec.split("\n").filter((l) => l.trim()).slice(0, 8).join("\n")}\n` : "";
+
+function researchDoc(o: AgentRunOpts, files: string[], hits: string[], hasLimiter: boolean, spec: string): string {
   return `# Research: ${o.title}
 
 ## Resumen del problema
 ${o.description || o.title}
-
+${specSummary(spec)}
 ## Archivos y módulos relevantes
 ${(hits.length ? hits : files.slice(0, 6)).map((f) => `- \`${f}\``).join("\n")}
 ${hasLimiter ? "- `src/middleware/rateLimit.ts`: middleware genérico existente, hoy sin implementar ni usar." : ""}

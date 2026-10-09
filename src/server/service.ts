@@ -91,7 +91,7 @@ export async function createTask(input: { title: string; description: string; re
   const ts = now();
   const task: Task = {
     id: uuid(), slug, title, description, repo_path: top, worktree_path: worktreePath, branch,
-    base_branch: info.branch, base_commit: info.commit, phase: "research", status: "idle",
+    base_branch: info.branch, base_commit: info.commit, phase: "spec", status: "idle",
     created_by: user.id, created_at: ts, updated_at: ts,
   };
   tasks.insert(task);

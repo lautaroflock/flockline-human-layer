@@ -1,15 +1,17 @@
 // Tipos compartidos servidor/cliente. Las filas viajan tal cual salen de SQLite (snake_case).
 
-export type PhaseName = "research" | "plan" | "implement";
+export type PhaseName = "spec" | "research" | "plan" | "implement";
 export type TaskPhase = PhaseName | "done";
 export type TaskStatus = "idle" | "running" | "awaiting_review" | "failed";
 export type SessionStatus = "running" | "done" | "failed" | "aborted";
 export type SessionKind = "run" | "revise";
 export type CommentStatus = "open" | "sent" | "resolved";
 export type EventType = "system" | "assistant_text" | "thinking" | "tool_use" | "tool_result" | "result" | "error";
-export type Tab = "research" | "plan" | "implement" | "files" | "diff";
+export type Tab = "spec" | "research" | "plan" | "implement" | "files" | "diff";
 
-export const PHASES: PhaseName[] = ["research", "plan", "implement"];
+export const PHASES: PhaseName[] = ["spec", "research", "plan", "implement"];
+/** Fases donde corre el agente (la etapa Spec se escribe a mano). */
+export const AGENT_PHASES: PhaseName[] = ["research", "plan", "implement"];
 
 export interface User {
   id: string;
@@ -67,6 +69,7 @@ export interface Artifact {
   approved: number;
   approved_by: string | null;
   approved_at: string | null;
+  created_by: string | null; // null = lo generó el agente; si no, quién la editó a mano
   created_at: string;
 }
 

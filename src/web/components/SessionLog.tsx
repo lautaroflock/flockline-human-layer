@@ -20,7 +20,14 @@ export function SessionLog() {
     end.current?.scrollIntoView({ block: "end" });
   }, [rows.length]);
 
-  if (!session) return <div className="log"><p className="empty">Sin sesión activa. Ejecutá la fase.</p></div>;
+  if (!session)
+    return (
+      <div className="log">
+        <p className="empty">
+          {detail?.task.phase === "spec" ? "La etapa Spec se escribe a mano: abrí la pestaña Spec, redactala y aprobala." : "Sin sesión activa. Ejecutá la fase."}
+        </p>
+      </div>
+    );
 
   const results = new Map<string, Record<string, any>>();
   for (const e of rows) if (e.type === "tool_result") results.set(parse(e).tool_use_id, parse(e));

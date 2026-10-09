@@ -5,6 +5,9 @@ Estás en la fase RESEARCH de una tarea de ingeniería. Investigá el código de
 
 {{description}}
 
+# Spec aprobada (definida por las personas)
+{{spec}}
+
 # Qué producir
 Escribí el archivo `{{artifactPath}}` (Markdown, en español) con estas secciones:
 

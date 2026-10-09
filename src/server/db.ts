@@ -88,6 +88,8 @@ const MIGRATIONS: string[] = [
   CREATE INDEX idx_artifacts_task ON artifacts(task_id, phase, version);
   CREATE INDEX idx_activity_task ON activity(task_id, id);
   `,
+  // v2: autor de cada versión (edición manual, etapa Spec)
+  `ALTER TABLE artifacts ADD COLUMN created_by TEXT REFERENCES users(id);`,
 ];
 
 function migrate() {
@@ -171,10 +173,10 @@ export const artifacts = {
   byTask: (taskId: string) => db.query("SELECT * FROM artifacts WHERE task_id = ? ORDER BY phase, version").all(taskId) as Artifact[],
   versions: (taskId: string, phase: PhaseName) => db.query("SELECT * FROM artifacts WHERE task_id = ? AND phase = ? ORDER BY version").all(taskId, phase) as Artifact[],
   latest: (taskId: string, phase: PhaseName) => db.query("SELECT * FROM artifacts WHERE task_id = ? AND phase = ? ORDER BY version DESC LIMIT 1").get(taskId, phase) as Artifact | null,
-  create(taskId: string, phase: PhaseName, path: string, content: string): Artifact {
+  create(taskId: string, phase: PhaseName, path: string, content: string, createdBy: string | null = null): Artifact {
     const version = (artifacts.latest(taskId, phase)?.version ?? 0) + 1;
-    const a: Artifact = { id: uuid(), task_id: taskId, phase, version, path, content, approved: 0, approved_by: null, approved_at: null, created_at: now() };
-    db.query("INSERT INTO artifacts (id, task_id, phase, version, path, content, approved, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)").run(a.id, taskId, phase, version, path, content, a.created_at);
+    const a: Artifact = { id: uuid(), task_id: taskId, phase, version, path, content, approved: 0, approved_by: null, approved_at: null, created_by: createdBy, created_at: now() };
+    db.query("INSERT INTO artifacts (id, task_id, phase, version, path, content, approved, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)").run(a.id, taskId, phase, version, path, content, createdBy, a.created_at);
     return a;
   },
   approve(id: string, userId: string): Artifact {
@@ -193,6 +195,11 @@ export const comments = {
     db.query("INSERT INTO comments (id, artifact_id, quote, body, status, author_id, resolved_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
       c.id, c.artifact_id, c.quote, c.body, c.status, c.author_id, c.resolved_by, c.created_at,
     );
+  },
+  /** Pasa un comentario a otra versión del mismo artefacto (cuando una edición conserva su cita). */
+  reassign(id: string, artifactId: string) {
+    db.query("UPDATE comments SET artifact_id = ? WHERE id = ?").run(artifactId, id);
+    return comments.byId(id)!;
   },
   update(id: string, patch: Partial<Pick<Comment, "status" | "body" | "resolved_by">>): Comment {
     const next = { ...comments.byId(id)!, ...patch };

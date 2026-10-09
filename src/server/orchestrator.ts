@@ -1,11 +1,11 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { artifactRel, runAgent } from "./agent";
 import { artifacts, comments, events, now, sessions, tasks, users, uuid } from "./db";
 import { bus } from "./bus";
 import * as git from "./git";
 import { HttpError } from "./http";
-import { logActivity, mustTask, publishTask } from "./service";
+import { commentView, logActivity, mustTask, publishTask } from "./service";
 import type { Artifact, Comment, PhaseName, Session, SessionKind, Task, User } from "../shared/types";
 import { PHASES } from "../shared/types";
 
@@ -47,6 +47,7 @@ export function runPhase(taskId: string, phaseParam: string, user: User): Promis
   return withLock(taskId, async () => {
     const task = mustTask(taskId);
     const phase = mustPhase(phaseParam);
+    if (phase === "spec") throw new HttpError(400, "La etapa Spec se escribe a mano: no corre agente");
     assertCurrent(task, phase);
     if (task.status !== "idle" && task.status !== "failed") throw new HttpError(409, `La fase está en estado ${task.status}`);
 
@@ -54,6 +55,7 @@ export function runPhase(taskId: string, phaseParam: string, user: User): Promis
       title: task.title,
       description: task.description,
       artifactPath: artifactRel(phase, task.slug),
+      spec: artifacts.latest(task.id, "spec")?.content ?? "(sin spec)",
       research: artifacts.latest(task.id, "research")?.content ?? "",
       plan: artifacts.latest(task.id, "plan")?.content ?? "",
     };
@@ -67,7 +69,7 @@ export function revisePhase(taskId: string, phaseParam: string, user: User): Pro
     const task = mustTask(taskId);
     const phase = mustPhase(phaseParam);
     assertCurrent(task, phase);
-    if (phase === "implement") throw new HttpError(400, "Implement no se revisa con comentarios");
+    if (phase === "implement" || phase === "spec") throw new HttpError(400, `${phase === "spec" ? "Spec" : "Implement"} no se revisa con el agente: editá el texto a mano`);
     if (task.status !== "awaiting_review") throw new HttpError(409, "Solo se puede pedir revisión en awaiting_review");
     const art = artifacts.latest(task.id, phase);
     if (!art) throw new HttpError(409, "No hay artefacto para revisar");
@@ -178,6 +180,44 @@ export async function abortSession(sessionId: string, user: User) {
   logActivity(s.task_id, user, "phase.aborted", { phase: s.phase });
   ac.abort();
   return { ok: true };
+}
+
+// ---------- edición manual de un artefacto (H10) ----------
+const MAX_ARTIFACT_BYTES = 200 * 1024;
+
+export function saveArtifact(taskId: string, phaseParam: string, content: string, baseVersion: number, user: User): Promise<Artifact> {
+  return withLock(taskId, async () => {
+    const task = mustTask(taskId);
+    const phase = mustPhase(phaseParam);
+    if (phase === "implement") throw new HttpError(400, "El resumen de Implement lo escribe el agente");
+    assertCurrent(task, phase);
+    if (task.status === "running") throw new HttpError(409, "Hay una sesión en curso: esperá a que termine");
+    const editable = task.status === "awaiting_review" || (phase === "spec" && (task.status === "idle" || task.status === "failed"));
+    if (!editable) throw new HttpError(409, `No se puede editar ${phase} en estado ${task.status}`);
+    const text = content.replace(/\r\n/g, "\n");
+    if (!text.trim()) throw new HttpError(400, "El texto no puede estar vacío");
+    if (Buffer.byteLength(text) > MAX_ARTIFACT_BYTES) throw new HttpError(400, "El texto supera los 200 KB");
+
+    const prev = artifacts.latest(task.id, phase);
+    if ((prev?.version ?? 0) !== baseVersion) throw new HttpError(409, `Alguien editó antes: ya existe la v${prev?.version}. Recargá y volvé a aplicar tu cambio`);
+    if (prev && prev.content === text) throw new HttpError(400, "No hay cambios respecto de la versión actual");
+
+    const rel = artifactRel(phase, task.slug);
+    mkdirSync(join(task.worktree_path!, ".flock", task.slug), { recursive: true });
+    writeFileSync(join(task.worktree_path!, rel), text);
+    const artifact = artifacts.create(task.id, phase, rel, text, user.id);
+    // Los comentarios abiertos cuya cita sigue en el texto nuevo migran a la versión nueva
+    if (prev) {
+      for (const c of comments.openFor(prev.id)) {
+        if (text.includes(c.quote)) bus.publishTask(task.id, { type: "comment.updated", taskId: task.id, comment: commentView(comments.reassign(c.id, artifact.id)) });
+      }
+    }
+    bus.publishTask(task.id, { type: "artifact.created", taskId: task.id, artifact });
+    logActivity(task.id, user, "artifact.edited", { phase, version: artifact.version });
+    publishTask(tasks.update(task.id, { status: "awaiting_review" }));
+    bus.publishTask(task.id, { type: "worktree.changed", taskId: task.id });
+    return artifact;
+  });
 }
 
 // ---------- aprobar ----------

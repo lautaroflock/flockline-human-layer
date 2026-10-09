@@ -3,6 +3,9 @@ Estás en la fase IMPLEMENT. Ejecutá el plan aprobado paso por paso, sin desvia
 # Tarea
 **{{title}}**
 
+# Spec aprobada (definida por las personas)
+{{spec}}
+
 # Plan aprobado
 {{plan}}
 

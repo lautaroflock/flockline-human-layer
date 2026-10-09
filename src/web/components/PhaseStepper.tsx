@@ -2,7 +2,7 @@ import { api } from "../api";
 import { reloadDetail, run, useStore } from "../store";
 import { PHASES, type PhaseName } from "../../shared/types";
 
-const LABEL: Record<PhaseName, string> = { research: "Research", plan: "Plan", implement: "Implement" };
+const LABEL: Record<PhaseName, string> = { spec: "Spec", research: "Research", plan: "Plan", implement: "Implement" };
 
 export function phaseStatus(taskPhase: string, status: string, p: PhaseName): string {
   const cur = PHASES.indexOf(taskPhase as PhaseName);
@@ -36,7 +36,7 @@ export function PhaseStepper() {
         );
       })}
       <div className="actions">
-        <button className="pri" disabled={!cur || !(task.status === "idle" || task.status === "failed")} onClick={() => post(`/api/tasks/${task.id}/phases/${cur}/run`)}>
+        <button className="pri" disabled={!cur || cur === "spec" || !(task.status === "idle" || task.status === "failed")} title={cur === "spec" ? "La spec se escribe a mano (pestaña Spec)" : undefined} onClick={() => post(`/api/tasks/${task.id}/phases/${cur}/run`)}>
           {task.status === "failed" ? "Reintentar" : "Ejecutar"} <kbd>Ctrl+↵</kbd>
         </button>
         <button className="ok" disabled={!cur || task.status !== "awaiting_review"} onClick={() => post(`/api/tasks/${task.id}/phases/${cur}/approve`)}>

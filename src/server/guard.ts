@@ -4,6 +4,7 @@ import type { PhaseName } from "../shared/types";
 
 // Guarda de herramientas (§5): el mismo chequeo lo usa canUseTool del SDK real y el agente mock.
 export const TOOLS: Record<PhaseName, string[]> = {
+  spec: [], // se escribe a mano: no corre agente
   research: ["Read", "Grep", "Glob", "Write"],
   plan: ["Read", "Grep", "Glob", "Write"],
   implement: ["Read", "Grep", "Glob", "Write", "Edit", "Bash"],

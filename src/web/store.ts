@@ -78,13 +78,13 @@ export async function reloadDetail() {
 export async function selectTask(id: string | null) {
   const prev = state.activeId;
   if (prev && prev !== id) sendWs({ type: "unsubscribe", taskId: prev });
-  setState({ activeId: id, detail: null, version: {}, tab: "research", draft: null });
+  setState({ activeId: id, detail: null, version: {}, tab: "spec", draft: null });
   history.replaceState(null, "", id ? `?task=${id}` : location.pathname);
   if (!id) return;
   sendWs({ type: "subscribe", taskId: id });
   await run(reloadDetail());
   const d = state.detail;
-  if (d) setTab(d.task.phase === "plan" ? "plan" : d.task.phase === "implement" ? "diff" : "research");
+  if (d) setTab(d.task.phase === "implement" || d.task.phase === "done" ? "diff" : d.task.phase);
 }
 
 export function setTab(tab: Tab) {
@@ -190,7 +190,7 @@ export async function boot() {
 }
 
 // ---- atajos de teclado (§7) ----
-export const TAB_ORDER: Tab[] = ["research", "plan", "files", "diff"];
+export const TAB_ORDER: Tab[] = ["spec", "research", "plan", "files", "diff"];
 
 export function cycleTab() {
   const i = TAB_ORDER.indexOf(state.tab);
@@ -210,6 +210,6 @@ export function primaryAction() {
   const d = state.detail;
   if (!d || d.task.phase === "done") return;
   const { task } = d;
-  const verb = task.status === "idle" || task.status === "failed" ? "run" : task.status === "awaiting_review" ? "approve" : null;
+  const verb = task.status === "awaiting_review" ? "approve" : (task.status === "idle" || task.status === "failed") && task.phase !== "spec" ? "run" : null;
   if (verb) run(api(`/api/tasks/${task.id}/phases/${task.phase}/${verb}`, { method: "POST" }).then(() => reloadDetail()));
 }

@@ -1,6 +1,6 @@
 # Flockline
 
-Clon web local del núcleo de HumanLayer: tareas que avanzan por **Research → Plan → Implement**, cada fase produce un artefacto Markdown revisable, el equipo comenta y aprueba antes de pasar a la siguiente, y la implementación queda como diff en un **git worktree** aislado. Incluye multiusuario liviano (autor en cada acción, presencia, feed de actividad) y un explorador del worktree.
+Clon web local del núcleo de HumanLayer: tareas que avanzan por **Spec → Research → Plan → Implement**. La **Spec** la escriben las personas a mano (sin agente); las demás fases las produce el agente. Cada fase deja un artefacto Markdown que el equipo puede **comentar o editar directamente** (cada edición crea una versión con autor) y aprobar antes de pasar a la siguiente, y la implementación queda como diff en un **git worktree** aislado. Incluye multiusuario liviano (autor en cada acción, presencia, feed de actividad) y un explorador del worktree.
 
 El spec completo está en `specs/` (un archivo por hito) y en el documento "Spec — Clon web de HumanLayer".
 
@@ -42,6 +42,12 @@ Entrás con un nombre (sin contraseñas). Abrí la URL en dos navegadores con no
 ## Que entren otras personas
 
 El servidor escucha en `127.0.0.1`. Para compartirlo en una red de confianza: `HOST=0.0.0.0`. Con WSL2, `localhost` solo se reenvía a la propia máquina: usá `networkingMode=mirrored` en `.wslconfig` o un túnel. No hay autenticación real: no lo expongas a Internet.
+
+## Spec manual y edición
+
+- La etapa **Spec** no corre agente: pestaña Spec → "Escribir spec" (plantilla precargada) → guardar → aprobar. La spec aprobada entra en los prompts de Research, Plan e Implement.
+- **✎ Editar** está disponible en el artefacto de la fase activa mientras espera revisión. Guardar crea una versión nueva (`PUT /api/tasks/:id/phases/:phase/artifact`), reescribe el archivo del worktree y migra los comentarios abiertos cuya cita sigue en el texto. Si otra persona guardó antes, el servidor responde 409.
+- El resumen de Implement no se edita a mano.
 
 ## Atajos
 

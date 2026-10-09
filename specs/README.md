@@ -14,6 +14,7 @@ Cada hito del plan (§8 del spec "Clon web de HumanLayer") tiene su archivo. Se 
 | H7 | [H7-pulido-ensayo.md](H7-pulido-ensayo.md) | 1 h |
 | H8 | [H8-multiusuario.md](H8-multiusuario.md) | 2 h |
 | H9 | [H9-worktree-navegable.md](H9-worktree-navegable.md) | 1 h |
+| H10 | [H10-spec-manual-y-edicion.md](H10-spec-manual-y-edicion.md) | 1,5 h |
 
 ## Decisiones de entorno (desvíos del spec)
 

@@ -54,7 +54,7 @@ function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = (e.target as HTMLElement).closest("input,textarea,select");
-      if (e.ctrlKey && e.key === "Enter") return e.preventDefault(), primaryAction();
+      if (e.ctrlKey && e.key === "Enter") return typing ? undefined : (e.preventDefault(), primaryAction());
       if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === "n" || e.key === "N") return e.preventDefault(), setState({ newTaskOpen: true });
       if (e.key === "j" || e.key === "J") return cycleTask(1);

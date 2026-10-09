@@ -1,6 +1,6 @@
 import { activity, artifacts, comments, events, now, sessions, tasks, users, uuid } from "./db";
 import { bus } from "./bus";
-import { abortSession, approvePhase, revisePhase, runPhase } from "./orchestrator";
+import { abortSession, approvePhase, revisePhase, runPhase, saveArtifact } from "./orchestrator";
 import { authed, bodyOf, HttpError } from "./http";
 import { presence } from "./presence";
 import * as git from "./git";
@@ -33,6 +33,14 @@ export const routes = {
   "/api/tasks/:id/phases/:phase/run": { POST: authed(({ params, user }) => runPhase(params.id!, params.phase!, user)) },
   "/api/tasks/:id/phases/:phase/approve": { POST: authed(({ params, user }) => approvePhase(params.id!, params.phase!, user)) },
   "/api/tasks/:id/phases/:phase/revise": { POST: authed(({ params, user }) => revisePhase(params.id!, params.phase!, user)) },
+
+  "/api/tasks/:id/phases/:phase/artifact": {
+    PUT: authed(async ({ req, params, user }) => {
+      const body = await bodyOf<{ content: string; baseVersion: number }>(req);
+      if (typeof body.content !== "string" || typeof body.baseVersion !== "number") throw new HttpError(400, "Faltan content y baseVersion");
+      return saveArtifact(params.id!, params.phase!, body.content, body.baseVersion, user);
+    }),
+  },
 
   "/api/sessions/:id/abort": { POST: authed(({ params, user }) => abortSession(params.id!, user)) },
   "/api/sessions/:id/events": {
@@ -126,7 +134,7 @@ export const routes = {
   "/api/tasks/:id/artifacts/:phase/versions": {
     GET: authed(({ params }) => {
       mustTask(params.id!);
-      if (!["research", "plan", "implement"].includes(params.phase!)) throw new HttpError(400, "Fase inválida");
+      if (!["spec", "research", "plan", "implement"].includes(params.phase!)) throw new HttpError(400, "Fase inválida");
       return artifacts.versions(params.id!, params.phase as never).map(({ content: _c, ...meta }) => meta);
     }),
   },

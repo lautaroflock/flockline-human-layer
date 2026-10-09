@@ -5,6 +5,9 @@ Estás en la fase PLAN. A partir del research aprobado, diseñá un plan de impl
 
 {{description}}
 
+# Spec aprobada (definida por las personas)
+{{spec}}
+
 # Research aprobado
 {{research}}
 
