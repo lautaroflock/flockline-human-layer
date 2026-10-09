@@ -376,6 +376,62 @@ async function main() {
   const p2 = await put(lau2, "plan", planV1.content + "\n## Rollback\nRevertir el commit.\n", 1);
   check("editar el plan a mano y revisar versiones", p2.status === 200 && (await lau2.api<any[]>(`/api/tasks/${ed.id}/artifacts/plan/versions`)).data.length === 2);
 
+  // ───────── H11 cancelar, reabrir y retroceder
+  section("H11 · cancelar, reabrir y retroceder");
+  // cancelar con una sesión en curso
+  const cx = (await lau2.api<Task>("/api/tasks", "POST", { title: "Cancelable [lento]", description: "", repoPath: repo })).data;
+  lau2.ws.send(JSON.stringify({ type: "subscribe", taskId: cx.id }));
+  await specAndApprove(lau2, ana2, cx.id);
+  const cxRun = await lau2.api(`/api/tasks/${cx.id}/phases/research/run`, "POST");
+  await sleep(250);
+  check("retroceder con una sesión en curso → 409", (await lau2.api(`/api/tasks/${cx.id}/rewind`, "POST", { to: "spec" })).status === 409);
+  const cancel = await ana2.api<Task>(`/api/tasks/${cx.id}/cancel`, "POST");
+  check("cancelar corta la sesión en curso", cancel.status === 200 && cancel.data.status === "cancelled");
+  await until(() => lau2.msgs.some((m) => m.type === "session.ended" && m.session.id === cxRun.data.id && m.session.status === "aborted"), "sesión abortada por cancelación");
+  await sleep(100);
+  const cxd = (await lau2.api<TaskDetail>(`/api/tasks/${cx.id}`)).data;
+  check("la tarea queda cancelada aunque la sesión termine después", cxd.task.status === "cancelled");
+  check("una tarea cancelada no se ejecuta ni se aprueba", (await lau2.api(`/api/tasks/${cx.id}/phases/research/run`, "POST")).status === 409 && (await lau2.api(`/api/tasks/${cx.id}/phases/research/approve`, "POST")).status === 409);
+  check("cancelar dos veces → 409", (await lau2.api(`/api/tasks/${cx.id}/cancel`, "POST")).status === 409);
+  const reo = await lau2.api<Task>(`/api/tasks/${cx.id}/reopen`, "POST");
+  check("reabrir la devuelve a su fase, lista para ejecutarse", reo.status === 200 && reo.data.status === "idle" && reo.data.phase === "research");
+
+  // retroceder: recorrido completo y vuelta atrás
+  const rt = (await lau2.api<Task>("/api/tasks", "POST", { title: "Retroceder", description: "", repoPath: repo })).data;
+  const rwt = rt.worktree_path!;
+  lau2.ws.send(JSON.stringify({ type: "subscribe", taskId: rt.id }));
+  await specAndApprove(lau2, ana2, rt.id);
+  for (const p of ["research", "plan"]) {
+    await lau2.api(`/api/tasks/${rt.id}/phases/${p}/run`, "POST");
+    await phaseDone(lau2, rt.id, p, 1);
+    await ana2.api(`/api/tasks/${rt.id}/phases/${p}/approve`, "POST");
+  }
+  await lau2.api(`/api/tasks/${rt.id}/phases/implement/run`, "POST");
+  await phaseDone(lau2, rt.id, "implement", 1);
+  const changedRl = () => readFileSync(join(rwt, "src/middleware/rateLimit.ts"), "utf8").includes("Retry-After");
+  check("implement dejó cambios en el worktree", changedRl() && existsSync(join(rwt, "tests/ratelimit.test.ts")));
+  const redo = await lau2.api<Task>(`/api/tasks/${rt.id}/rewind`, "POST", { to: "implement" });
+  check("rehacer implement: descarta el código sin aprobar y vuelve a idle", redo.status === 200 && redo.data.status === "idle" && !changedRl() && !existsSync(join(rwt, "tests/ratelimit.test.ts")));
+  await lau2.api(`/api/tasks/${rt.id}/phases/implement/run`, "POST");
+  await phaseDone(lau2, rt.id, "implement", 2);
+  await ana2.api(`/api/tasks/${rt.id}/phases/implement/approve`, "POST");
+  check("se reimplementó y la tarea terminó", (await lau2.api<TaskDetail>(`/api/tasks/${rt.id}`)).data.task.phase === "done" && changedRl());
+
+  const back = await ana2.api<Task>(`/api/tasks/${rt.id}/rewind`, "POST", { to: "plan" });
+  check("volver de done a plan", back.status === 200 && back.data.phase === "plan" && back.data.status === "awaiting_review");
+  check("el worktree vuelve al estado del plan aprobado", !changedRl() && !existsSync(join(rwt, "tests/ratelimit.test.ts")) && !existsSync(join(rwt, ".flock", rt.slug, "summary.md")) && existsSync(join(rwt, ".flock", rt.slug, "plan.md")));
+  const log2 = git(rwt, "log", "--format=%s");
+  check("los commits posteriores al plan se descartan de la rama", log2.includes("plan:") && !log2.includes("implement:"), log2);
+  const rtd = (await lau2.api<TaskDetail>(`/api/tasks/${rt.id}`)).data;
+  check("plan e implement quedan sin aprobar; spec y research siguen aprobadas", rtd.artifacts.filter((a) => a.phase === "plan" || a.phase === "implement").every((a) => !a.approved) && rtd.artifacts.filter((a) => a.phase === "spec" || a.phase === "research").some((a) => a.approved));
+  check("las versiones anteriores quedan en el historial", rtd.artifacts.filter((a) => a.phase === "implement").length === 2);
+  check("no se puede retroceder hacia adelante", (await lau2.api(`/api/tasks/${rt.id}/rewind`, "POST", { to: "implement" })).status === 409);
+  const edPlan = await lau2.api<any>(`/api/tasks/${rt.id}/phases/plan/artifact`, "PUT", { content: rtd.artifacts.filter((a) => a.phase === "plan").at(-1)!.content + "\n## Nota\nCambio tras retroceder.\n", baseVersion: rtd.artifacts.filter((a) => a.phase === "plan").length });
+  check("tras retroceder se puede editar el plan y volver a aprobarlo", edPlan.status === 200 && (await lau2.api(`/api/tasks/${rt.id}/phases/plan/approve`, "POST")).status === 200);
+  const toSpec = await lau2.api<Task>(`/api/tasks/${rt.id}/rewind`, "POST", { to: "spec" });
+  check("volver hasta la spec", toSpec.status === 200 && toSpec.data.phase === "spec" && toSpec.data.status === "awaiting_review" && !existsSync(join(rwt, ".flock", rt.slug, "research.md")));
+  check("retroceder queda en el feed de actividad", (await lau2.api<any[]>(`/api/tasks/${rt.id}/activity`)).data.some((a) => a.kind === "phase.rewound"));
+
   await stopServer();
   rmSync(tmp, { recursive: true, force: true });
   console.log(failures === 0 ? "\nTODO OK" : `\n${failures} verificación(es) fallaron`);

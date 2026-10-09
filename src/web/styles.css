@@ -94,3 +94,6 @@ aside.left{border-right:1px solid var(--line);background:var(--panel);padding:12
 button kbd{background:rgba(0,0,0,.25);border-color:rgba(0,0,0,.35);color:inherit}
 .actions{flex-wrap:wrap}
 .tabs .vers{width:84px;margin-right:8px}
+.step button.mini{padding:0 6px;font-size:12px;line-height:18px;margin-left:2px}
+.badge.cancelled{color:var(--err);border-color:var(--err);text-decoration:line-through}
+.step.cancelled .dot{background:var(--err)}

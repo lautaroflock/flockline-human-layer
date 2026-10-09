@@ -2,7 +2,7 @@
 
 export type PhaseName = "spec" | "research" | "plan" | "implement";
 export type TaskPhase = PhaseName | "done";
-export type TaskStatus = "idle" | "running" | "awaiting_review" | "failed";
+export type TaskStatus = "idle" | "running" | "awaiting_review" | "failed" | "cancelled";
 export type SessionStatus = "running" | "done" | "failed" | "aborted";
 export type SessionKind = "run" | "revise";
 export type CommentStatus = "open" | "sent" | "resolved";

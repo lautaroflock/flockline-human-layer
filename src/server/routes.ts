@@ -1,6 +1,6 @@
 import { activity, artifacts, comments, events, now, sessions, tasks, users, uuid } from "./db";
 import { bus } from "./bus";
-import { abortSession, approvePhase, revisePhase, runPhase, saveArtifact } from "./orchestrator";
+import { abortSession, approvePhase, cancelTask, reopenTask, revisePhase, rewindTask, runPhase, saveArtifact } from "./orchestrator";
 import { authed, bodyOf, HttpError } from "./http";
 import { presence } from "./presence";
 import * as git from "./git";
@@ -39,6 +39,16 @@ export const routes = {
       const body = await bodyOf<{ content: string; baseVersion: number }>(req);
       if (typeof body.content !== "string" || typeof body.baseVersion !== "number") throw new HttpError(400, "Faltan content y baseVersion");
       return saveArtifact(params.id!, params.phase!, body.content, body.baseVersion, user);
+    }),
+  },
+
+  "/api/tasks/:id/cancel": { POST: authed(({ params, user }) => cancelTask(params.id!, user)) },
+  "/api/tasks/:id/reopen": { POST: authed(({ params, user }) => reopenTask(params.id!, user)) },
+  "/api/tasks/:id/rewind": {
+    POST: authed(async ({ req, params, user }) => {
+      const body = await bodyOf<{ to: string }>(req);
+      if (!body.to) throw new HttpError(400, "Falta la fase destino (to)");
+      return rewindTask(params.id!, body.to, user);
     }),
   },
 

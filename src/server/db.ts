@@ -179,6 +179,10 @@ export const artifacts = {
     db.query("INSERT INTO artifacts (id, task_id, phase, version, path, content, approved, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)").run(a.id, taskId, phase, version, path, content, createdBy, a.created_at);
     return a;
   },
+  /** Quita la aprobación de las versiones de estas fases (al retroceder). */
+  unapprove(taskId: string, phases: PhaseName[]) {
+    for (const p of phases) db.query("UPDATE artifacts SET approved = 0, approved_by = NULL, approved_at = NULL WHERE task_id = ? AND phase = ?").run(taskId, p);
+  },
   approve(id: string, userId: string): Artifact {
     const at = now();
     db.query("UPDATE artifacts SET approved = 1, approved_by = ?, approved_at = ? WHERE id = ?").run(userId, at, id);

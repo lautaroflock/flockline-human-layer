@@ -84,6 +84,22 @@ export async function commitAll(wt: string, message: string, author: { name: str
   await git(wt, ["-c", `user.name=${author.name}`, "-c", `user.email=${email}`, "commit", "--allow-empty", "-q", "-m", message, `--author=${author.name} <${email}>`]);
 }
 
+/** Lleva el worktree exactamente a `ref` (descarta commits posteriores, cambios y archivos sin seguimiento). */
+export async function resetHard(wt: string, ref: string) {
+  await git(wt, ["reset", "--hard", "-q", ref]);
+  await git(wt, ["clean", "-fdq"]);
+}
+
+/** Último commit de fase cuyo asunto empieza con `<fase>:` (los crea approvePhase). */
+export async function phaseCommit(wt: string, baseCommit: string, phase: string): Promise<string | null> {
+  const r = await git(wt, ["log", `${baseCommit}..HEAD`, "--format=%H%x1f%s"], { allowFail: true });
+  for (const line of r.out.split("\n")) {
+    const [hash, subject] = line.split("\x1f");
+    if (hash && subject?.startsWith(`${phase}:`)) return hash;
+  }
+  return null;
+}
+
 export async function commits(wt: string, baseCommit: string): Promise<CommitInfo[]> {
   const r = await git(wt, ["log", `${baseCommit}..HEAD`, "--format=%h%x1f%s%x1f%an%x1f%aI"], { allowFail: true });
   return r.out

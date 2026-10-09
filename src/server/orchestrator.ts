@@ -35,6 +35,7 @@ function mustPhase(p: string): PhaseName {
 }
 
 function assertCurrent(task: Task, phase: PhaseName) {
+  if (task.status === "cancelled") throw new HttpError(409, "La tarea está cancelada: reabrila para seguir");
   if (task.phase === "done") throw new HttpError(409, "La tarea ya terminó");
   const cur = PHASES.indexOf(task.phase);
   const want = PHASES.indexOf(phase);
@@ -167,7 +168,7 @@ async function finish(task: Task, s: Session, status: Session["status"], o: { tu
       for (const id of sentIds) bus.publishTask(task.id, { type: "comment.updated", taskId: task.id, comment: comments.update(id, { status: "open" }) });
     }
     const next = s.kind === "revise" && status !== "done" ? "awaiting_review" : status === "failed" ? "failed" : status === "aborted" ? "idle" : "awaiting_review";
-    publishTask(tasks.update(task.id, { status: next }));
+    if (tasks.byId(task.id)?.status !== "cancelled") publishTask(tasks.update(task.id, { status: next }));
     bus.publishTask(task.id, { type: "worktree.changed", taskId: task.id });
   });
 }
@@ -236,6 +237,75 @@ export function approvePhase(taskId: string, phaseParam: string, user: User): Pr
     const updated = tasks.update(task.id, { phase: nextPhase, status: "idle" });
     logActivity(task.id, user, "phase.approved", { phase });
     publishTask(updated);
+    bus.publishTask(task.id, { type: "worktree.changed", taskId: task.id });
+    return updated;
+  });
+}
+
+// ---------- cancelar, reabrir y retroceder ----------
+function abortRunning(taskId: string) {
+  for (const s of sessions.byTask(taskId)) if (s.status === "running") running.get(s.id)?.abort();
+}
+
+/** Estado al volver a una fase: en revisión si ya tiene artefacto, si no `idle` (Implement: si hay resumen). */
+const statusFor = (taskId: string, phase: Task["phase"]): Task["status"] =>
+  phase !== "done" && artifacts.latest(taskId, phase) ? "awaiting_review" : "idle";
+
+export function cancelTask(taskId: string, user: User): Promise<Task> {
+  return withLock(taskId, async () => {
+    const task = mustTask(taskId);
+    if (task.phase === "done") throw new HttpError(409, "La tarea ya terminó");
+    if (task.status === "cancelled") throw new HttpError(409, "La tarea ya está cancelada");
+    abortRunning(task.id); // la sesión termina sola como `aborted`; finish respeta la cancelación
+    const updated = tasks.update(task.id, { status: "cancelled" });
+    logActivity(task.id, user, "task.cancelled", { phase: task.phase });
+    publishTask(updated);
+    return updated;
+  });
+}
+
+export function reopenTask(taskId: string, user: User): Promise<Task> {
+  return withLock(taskId, async () => {
+    const task = mustTask(taskId);
+    if (task.status !== "cancelled") throw new HttpError(409, "La tarea no está cancelada");
+    const updated = tasks.update(task.id, { status: statusFor(task.id, task.phase) });
+    logActivity(task.id, user, "task.reopened", { phase: task.phase });
+    publishTask(updated);
+    return updated;
+  });
+}
+
+/**
+ * Vuelve a una fase anterior (o rehace la actual). El worktree vuelve al commit con que se aprobó esa fase:
+ * se descartan el código y los artefactos de las fases siguientes; las versiones quedan en el historial.
+ * Volver a la fase actual descarta lo que produjo y la deja lista para ejecutarse de nuevo.
+ */
+export function rewindTask(taskId: string, toParam: string, user: User): Promise<Task> {
+  return withLock(taskId, async () => {
+    const task = mustTask(taskId);
+    const to = mustPhase(toParam);
+    if (task.status === "running") throw new HttpError(409, "Hay una sesión en curso: abortala antes de retroceder");
+    const cur = task.phase === "done" ? PHASES.length : PHASES.indexOf(task.phase);
+    const idx = PHASES.indexOf(to);
+    if (idx > cur) throw new HttpError(409, `No se puede avanzar a ${to} retrocediendo`);
+    const wt = task.worktree_path!;
+
+    let status: Task["status"];
+    if (idx === cur) {
+      // Rehacer la fase actual: se descarta lo no aprobado y vuelve a idle
+      await git.resetHard(wt, "HEAD");
+      status = "idle";
+    } else {
+      const sha = await git.phaseCommit(wt, task.base_commit!, to);
+      if (!sha) throw new HttpError(409, `No hay commit de aprobación de ${to} al que volver`);
+      await git.resetHard(wt, sha);
+      status = statusFor(task.id, to);
+    }
+    artifacts.unapprove(task.id, PHASES.slice(idx));
+    const updated = tasks.update(task.id, { phase: to, status });
+    logActivity(task.id, user, "phase.rewound", { from: task.phase, to });
+    publishTask(updated);
+    for (const a of artifacts.byTask(task.id)) if (PHASES.indexOf(a.phase) >= idx) bus.publishTask(task.id, { type: "artifact.updated", taskId: task.id, artifact: a });
     bus.publishTask(task.id, { type: "worktree.changed", taskId: task.id });
     return updated;
   });

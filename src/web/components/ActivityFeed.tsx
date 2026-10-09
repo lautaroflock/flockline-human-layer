@@ -12,6 +12,9 @@ const VERB: Record<string, (p: any) => string> = {
   "comment.created": (p) => `comentó en ${p?.phase}`,
   "comment.resolved": (p) => `resolvió un comentario en ${p?.phase}`,
   "artifact.edited": (p) => `editó ${p?.phase} (v${p?.version})`,
+  "task.cancelled": (p) => `canceló la tarea (en ${p?.phase})`,
+  "task.reopened": () => "reabrió la tarea",
+  "phase.rewound": (p) => p?.from === p?.to ? `rehízo ${p?.to}` : `volvió de ${p?.from} a ${p?.to}`,
   "comments.sent": (p) => `envió ${p?.count} comentario(s) al agente (${p?.phase})`,
 };
 
