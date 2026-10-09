@@ -23,6 +23,8 @@ export function useShown(phase: PhaseName): { versions: Artifact[]; shown: Artif
 export function ArtifactPanel() {
   const tab = useStore((s) => s.tab);
   const detail = useStore((s) => s.detail);
+  const users = useStore((s) => s.users);
+  const me = useStore((s) => s.user);
   if (!detail) return <section className="right" />;
   const phase = (PHASES as string[]).includes(tab) ? (tab as PhaseName) : "research";
   return (
@@ -31,6 +33,9 @@ export function ArtifactPanel() {
         {TABS.map((t) => (
           <div key={t.id} className={`tab ${tab === t.id ? "on" : ""}`} onClick={() => setTab(t.id)}>
             {t.label}
+            {detail.presence.filter((p) => p.tab === t.id && p.user_id !== me?.id).map((p) => (
+              <span key={p.user_id} style={{ color: users.find((u) => u.id === p.user_id)?.color }} title={users.find((u) => u.id === p.user_id)?.name}> ●</span>
+            ))}
           </div>
         ))}
         {tab !== "diff" && <VersionPicker phase={phase} />}

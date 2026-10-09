@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { ActivityFeed } from "./components/ActivityFeed";
+import { PresenceBar, UserSwitcher } from "./components/Presence";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { PhaseStepper } from "./components/PhaseStepper";
 import { SessionLog } from "./components/SessionLog";
@@ -36,6 +38,7 @@ function Center() {
     <section className="center">
       <PhaseStepper />
       <SessionLog />
+      <ActivityFeed />
     </section>
   );
 }
@@ -67,8 +70,9 @@ function App() {
     <div className="app">
       <header className="top">
         <b>Flockline</b>
-        <span className="mut">{user.name}</span>
         <span className="sp" />
+        <PresenceBar />
+        <UserSwitcher />
         <span className={wsOk ? "ws-ok" : "ws-bad"}>{wsOk ? "● WS conectado" : "● WS desconectado"}</span>
         <button onClick={logout}>Salir</button>
       </header>

@@ -227,6 +227,32 @@ async function main() {
   check("reiniciar conserva tareas, artefactos, comentarios, sesiones y eventos", after.task.phase === "done" && after.artifacts.length === before.artifacts.length && after.comments.length === before.comments.length && after.sessions.length === before.sessions.length && afterEvents === beforeEvents && afterEvents > 5);
   check("la lista de tareas sobrevive al reinicio", (await lau.api<Task[]>("/api/tasks")).data.length === 4);
 
+  // ───────── H8 multiusuario
+  section("H8 · multiusuario: identidad, presencia, autoría y concurrencia");
+  const lau2 = await connect("Lautaro");
+  const ana2 = await connect("Ana");
+  check("misma identidad al volver a entrar con el mismo nombre", lau2.user.id === lau.user.id && ana2.user.id === ana.user.id);
+  check("WebSocket sin token → 401", (await fetch(`${base}/ws`)).status === 401);
+  check("token adulterado → 401", (await fetch(`${base}/api/tasks`, { headers: { authorization: `Bearer ${lau.token}x` } })).status === 401);
+  for (const c of [lau2, ana2]) c.ws.send(JSON.stringify({ type: "subscribe", taskId: pa.id }));
+  await sleep(100);
+  lau2.ws.send(JSON.stringify({ type: "presence", taskId: pa.id, tab: "diff" }));
+  await until(() => ana2.msgs.some((m) => m.type === "presence.changed" && m.presence.some((p) => p.user_id === lau.user.id && p.tab === "diff")), "presence.changed con la pestaña de Lautaro");
+  check("presence.changed muestra quién está en qué pestaña", true);
+  const users = (await ana2.api<any[]>("/api/users")).data;
+  check("/api/users informa quién está conectado", users.find((u) => u.id === lau.user.id)?.online === true);
+
+  const spoof = await ana2.api<any>(`/api/artifacts/${(await ana2.api<TaskDetail>(`/api/tasks/${pa.id}`)).data.artifacts[0]!.id}/comments`, "POST", { quote: "rateLimit", body: "firmado por Ana", author_id: lau.user.id });
+  check("el autor sale del token: no se puede falsificar", spoof.status === 200 && spoof.data.author_id === ana2.user.id);
+
+  const [x1, x2] = await Promise.all([lau2.api(`/api/tasks/${pa.id}/phases/research/approve`, "POST"), ana2.api(`/api/tasks/${pa.id}/phases/research/approve`, "POST")]);
+  check("dos aprobaciones simultáneas → una sola transición (200 + 409)", [x1.status, x2.status].sort().join() === "200,409", `${x1.status},${x2.status}`);
+  const paDet = (await lau2.api<TaskDetail>(`/api/tasks/${pa.id}`)).data;
+  check("la tarea avanzó una única fase", paDet.task.phase === "plan" && paDet.artifacts.filter((a) => a.approved).length === 1);
+  const act = (await lau2.api<any[]>(`/api/tasks/${pa.id}/activity`)).data;
+  check("feed de actividad con autor por acción", act.some((a) => a.kind === "phase.run") && act.some((a) => a.kind === "phase.approved") && act.some((a) => a.kind === "comment.created" && a.user_id === ana.user.id));
+  check("activity.added llega en vivo", ana2.msgs.some((m) => m.type === "activity.added"));
+
   // (los hitos siguientes agregan sus pasos acá)
 
   await stopServer();

@@ -1,4 +1,4 @@
-import { artifacts, comments, events, now, sessions, tasks, users, uuid } from "./db";
+import { activity, artifacts, comments, events, now, sessions, tasks, users, uuid } from "./db";
 import { bus } from "./bus";
 import { abortSession, approvePhase, revisePhase, runPhase } from "./orchestrator";
 import { authed, bodyOf, HttpError } from "./http";
@@ -93,6 +93,8 @@ export const routes = {
       return next;
     }),
   },
+  "/api/tasks/:id/activity": { GET: authed(({ params }) => activity.byTask(mustTask(params.id!).id, 50)) },
+
   // Diff de la rama contra la base, sin .flock/ (§6)
   "/api/tasks/:id/diff": {
     GET: authed(async ({ params }) => {
