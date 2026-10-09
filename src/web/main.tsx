@@ -4,7 +4,7 @@ import { ArtifactPanel } from "./components/ArtifactPanel";
 import { PhaseStepper } from "./components/PhaseStepper";
 import { SessionLog } from "./components/SessionLog";
 import { TaskList } from "./components/TaskList";
-import { boot, login, logout, run, useStore } from "./store";
+import { boot, cycleTab, cycleTask, login, logout, primaryAction, run, setState, useStore } from "./store";
 import { getToken } from "./api";
 
 function Login() {
@@ -47,6 +47,19 @@ function App() {
   const [ready, setReady] = useState(!getToken());
   useEffect(() => {
     if (getToken()) run(boot()).finally(() => setReady(true));
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const typing = (e.target as HTMLElement).closest("input,textarea,select");
+      if (e.ctrlKey && e.key === "Enter") return e.preventDefault(), primaryAction();
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === "n" || e.key === "N") return e.preventDefault(), setState({ newTaskOpen: true });
+      if (e.key === "j" || e.key === "J") return cycleTask(1);
+      if (e.key === "k" || e.key === "K") return cycleTask(-1);
+      if (e.key === "]") return cycleTab();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, []);
   if (!ready) return null;
   if (!user) return <Login />;

@@ -23,6 +23,21 @@ export function SelectionPopover({ phase, enabled }: { phase: PhaseName; enabled
     return () => document.removeEventListener("mouseup", onUp);
   }, [enabled]);
 
+  // Atajo C: comentar la selección actual
+  useEffect(() => {
+    if (!pos) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key === "c" || e.key === "C") && !e.ctrlKey && !e.metaKey && !(e.target as HTMLElement).closest("input,textarea")) {
+        e.preventDefault();
+        setState({ draft: { phase, quote: pos.quote } });
+        setPos(null);
+        getSelection()?.removeAllRanges();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [pos, phase]);
+
   if (!pos) return null;
   return (
     <div

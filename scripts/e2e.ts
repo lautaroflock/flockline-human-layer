@@ -191,6 +191,42 @@ async function main() {
   const log = git(wt, "log", "--format=%an|%s");
   check("commits de fase firmados por quien aprobó", log.includes("Ana|implement:") && log.includes("Ana|research:") && log.includes("Lautaro|plan:"), log);
 
+  // ───────── H7 abortar, paralelismo y persistencia
+  section("H7 · abortar, tareas en paralelo y reinicio del servidor");
+  const slow = (await lau.api<Task>("/api/tasks", "POST", { title: "Tarea lenta [lento]", description: "", repoPath: repo })).data;
+  lau.ws.send(JSON.stringify({ type: "subscribe", taskId: slow.id }));
+  const sl = await lau.api(`/api/tasks/${slow.id}/phases/research/run`, "POST");
+  await sleep(300);
+  const ab = await ana.api(`/api/sessions/${sl.data.id}/abort`, "POST");
+  check("abortar una sesión en curso", ab.status === 200);
+  await until(() => lau.msgs.some((m) => m.type === "session.ended" && m.session.id === sl.data.id && m.session.status === "aborted"), "sesión abortada");
+  await sleep(100);
+  const slowDet = (await lau.api<TaskDetail>(`/api/tasks/${slow.id}`)).data;
+  check("tras abortar la fase vuelve a idle y se puede reintentar", slowDet.task.status === "idle" && slowDet.artifacts.length === 0);
+  const abAgain = await lau.api(`/api/sessions/${sl.data.id}/abort`, "POST");
+  check("abortar una sesión terminada → 409", abAgain.status === 409);
+
+  const pa = (await lau.api<Task>("/api/tasks", "POST", { title: "Paralela A", description: "", repoPath: repo })).data;
+  const pb = (await ana.api<Task>("/api/tasks", "POST", { title: "Paralela B", description: "", repoPath: repo })).data;
+  for (const t of [pa, pb]) lau.ws.send(JSON.stringify({ type: "subscribe", taskId: t.id }));
+  await sleep(100);
+  const from = lau.msgs.length;
+  const [ra, rb] = await Promise.all([lau.api(`/api/tasks/${pa.id}/phases/research/run`, "POST"), ana.api(`/api/tasks/${pb.id}/phases/research/run`, "POST")]);
+  await until(() => lau.msgs.slice(from).filter((m) => m.type === "session.ended").length >= 2, "dos sesiones en paralelo");
+  const evs2 = lau.msgs.slice(from).filter((m) => m.type === "session.event") as Extract<ServerMessage, { type: "session.event" }>[];
+  const owner = new Map<string, string>([[ra.data.id, pa.id], [rb.data.id, pb.id]]);
+  check("dos tareas corren en paralelo sin mezclar eventos", evs2.length > 10 && evs2.every((m) => owner.get(m.sessionId) === m.taskId), `${evs2.length} eventos`);
+  check("cada tarea escribió su propio research.md", existsSync(join(pa.worktree_path!, ".flock", pa.slug, "research.md")) && existsSync(join(pb.worktree_path!, ".flock", pb.slug, "research.md")));
+
+  const before = (await lau.api<TaskDetail>(`/api/tasks/${task.id}`)).data;
+  const beforeEvents = (await lau.api<any[]>(`/api/sessions/${before.sessions[0]!.id}/events`)).data.length;
+  await stopServer();
+  await startServer();
+  const after = (await lau.api<TaskDetail>(`/api/tasks/${task.id}`)).data;
+  const afterEvents = (await lau.api<any[]>(`/api/sessions/${before.sessions[0]!.id}/events`)).data.length;
+  check("reiniciar conserva tareas, artefactos, comentarios, sesiones y eventos", after.task.phase === "done" && after.artifacts.length === before.artifacts.length && after.comments.length === before.comments.length && after.sessions.length === before.sessions.length && afterEvents === beforeEvents && afterEvents > 5);
+  check("la lista de tareas sobrevive al reinicio", (await lau.api<Task[]>("/api/tasks")).data.length === 4);
+
   // (los hitos siguientes agregan sus pasos acá)
 
   await stopServer();

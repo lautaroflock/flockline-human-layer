@@ -83,6 +83,8 @@ async function* runReal(o: AgentRunOpts): AsyncGenerator<AgentOut> {
 }
 
 // ---------- Agente mock: guion determinista que escribe artefactos reales en el worktree ----------
+/** Un título con "[lento]" multiplica la demora del mock: permite probar abortar una sesión en curso. */
+const delayOf = (o: AgentRunOpts) => (o.title.includes("[lento]") ? Math.max(config.mockDelayMs, 250) : config.mockDelayMs);
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
     if (signal.aborted) return reject(new DOMException("abortado", "AbortError"));
@@ -104,7 +106,7 @@ let toolSeq = 0;
 async function* tool(o: AgentRunOpts, name: string, input: Record<string, unknown>, exec: () => Promise<string> | string, changes = false): AsyncGenerator<AgentOut, string> {
   const id = `mock_${++toolSeq}`;
   yield { type: "tool_use", payload: { id, name, input } };
-  await sleep(config.mockDelayMs, o.signal);
+  await sleep(delayOf(o), o.signal);
   const verdict = checkTool({ phase: o.phase, slug: o.slug, worktree: o.worktree }, name, input);
   if (!verdict.ok) {
     yield { type: "tool_result", payload: { tool_use_id: id, is_error: true, content: `Denegado: ${verdict.reason}` } };
@@ -116,7 +118,7 @@ async function* tool(o: AgentRunOpts, name: string, input: Record<string, unknow
 }
 
 async function* say(o: AgentRunOpts, type: "assistant_text" | "thinking", text: string): AsyncGenerator<AgentOut> {
-  await sleep(config.mockDelayMs, o.signal);
+  await sleep(delayOf(o), o.signal);
   yield { type, payload: { text } };
 }
 

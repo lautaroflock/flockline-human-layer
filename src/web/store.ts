@@ -17,9 +17,10 @@ export interface State {
   error: string | null;
   worktreeTick: number; // sube con worktree.changed para refrescar el árbol
   draft: { phase: string; quote: string } | null; // texto seleccionado esperando comentario
+  newTaskOpen: boolean;
 }
 
-let state: State = { user: null, users: [], tasks: [], activeId: null, detail: null, events: {}, tab: "research", version: {}, wsOk: false, error: null, worktreeTick: 0, draft: null };
+let state: State = { user: null, users: [], tasks: [], activeId: null, detail: null, events: {}, tab: "research", version: {}, wsOk: false, error: null, worktreeTick: 0, draft: null, newTaskOpen: false };
 const listeners = new Set<() => void>();
 
 export const getState = () => state;
@@ -183,4 +184,29 @@ export async function boot() {
   await Promise.all([loadTasks(), loadUsers()]);
   const id = new URLSearchParams(location.search).get("task");
   if (id) await selectTask(id);
+}
+
+// ---- atajos de teclado (§7) ----
+export const TAB_ORDER: Tab[] = ["research", "plan", "diff"];
+
+export function cycleTab() {
+  const i = TAB_ORDER.indexOf(state.tab);
+  setTab(TAB_ORDER[(i + 1) % TAB_ORDER.length]!);
+}
+
+export function cycleTask(dir: 1 | -1) {
+  const { tasks, activeId } = state;
+  if (tasks.length === 0) return;
+  const i = tasks.findIndex((t) => t.id === activeId);
+  const next = tasks[(i + dir + tasks.length) % tasks.length]!;
+  run(selectTask(next.id));
+}
+
+/** Ctrl+Enter: ejecuta la fase activa o, si está en revisión, la aprueba. */
+export function primaryAction() {
+  const d = state.detail;
+  if (!d || d.task.phase === "done") return;
+  const { task } = d;
+  const verb = task.status === "idle" || task.status === "failed" ? "run" : task.status === "awaiting_review" ? "approve" : null;
+  if (verb) run(api(`/api/tasks/${task.id}/phases/${task.phase}/${verb}`, { method: "POST" }).then(() => reloadDetail()));
 }

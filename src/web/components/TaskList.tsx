@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { api } from "../api";
-import { run, selectTask, useStore } from "../store";
+import { run, selectTask, setState, useStore } from "../store";
 import type { Task } from "../../shared/types";
 
 export function TaskList() {
   const tasks = useStore((s) => s.tasks);
   const activeId = useStore((s) => s.activeId);
-  const [modal, setModal] = useState(false);
+  const modal = useStore((s) => s.newTaskOpen);
+  const setModal = (open: boolean) => setState({ newTaskOpen: open });
 
   return (
     <aside className="left">
