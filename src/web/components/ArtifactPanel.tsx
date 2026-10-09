@@ -1,5 +1,6 @@
 import { setState, setTab, useStore } from "../store";
 import { DiffView } from "./DiffView";
+import { FilesPanel } from "./FilesPanel";
 import { CommentLayer, SelectionPopover, userColor, userName } from "./CommentLayer";
 import { Markdown, type Mark } from "./Markdown";
 import { PHASES, type Artifact, type PhaseName, type Tab } from "../../shared/types";
@@ -7,6 +8,7 @@ import { PHASES, type Artifact, type PhaseName, type Tab } from "../../shared/ty
 const TABS: { id: Tab; label: string }[] = [
   { id: "research", label: "Research" },
   { id: "plan", label: "Plan" },
+  { id: "files", label: "Archivos" },
   { id: "diff", label: "Diff" },
 ];
 
@@ -38,9 +40,9 @@ export function ArtifactPanel() {
             ))}
           </div>
         ))}
-        {tab !== "diff" && <VersionPicker phase={phase} />}
+        {tab !== "diff" && tab !== "files" && <VersionPicker phase={phase} />}
       </div>
-      {tab === "diff" ? <DiffView /> : <ArtifactView phase={phase} />}
+      {tab === "diff" ? <DiffView /> : tab === "files" ? <FilesPanel /> : <ArtifactView phase={phase} />}
     </section>
   );
 }

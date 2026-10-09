@@ -4,6 +4,7 @@ import { abortSession, approvePhase, revisePhase, runPhase } from "./orchestrato
 import { authed, bodyOf, HttpError } from "./http";
 import { presence } from "./presence";
 import * as git from "./git";
+import { readSafe } from "./files";
 import { commentView, createTask, logActivity, mustTask, taskDetail } from "./service";
 import type { Comment } from "../shared/types";
 
@@ -91,6 +92,26 @@ export const routes = {
       bus.publishTask(art.task_id, { type: "comment.updated", taskId: art.task_id, comment: commentView(next) });
       if (patch.status === "resolved") logActivity(art.task_id, user, "comment.resolved", { phase: art.phase, author: c.author_id });
       return next;
+    }),
+  },
+  // Worktree navegable (§11.6): solo lectura, rutas validadas contra el worktree
+  "/api/tasks/:id/tree": {
+    GET: authed(async ({ params }) => {
+      const t = mustTask(params.id!);
+      return git.tree(t.worktree_path!, t.base_commit!);
+    }),
+  },
+  "/api/tasks/:id/file": {
+    GET: authed(({ req, params }) => {
+      const t = mustTask(params.id!);
+      const path = new URL(req.url).searchParams.get("path") ?? "";
+      return readSafe(t.worktree_path!, path);
+    }),
+  },
+  "/api/tasks/:id/commits": {
+    GET: authed(async ({ params }) => {
+      const t = mustTask(params.id!);
+      return git.commits(t.worktree_path!, t.base_commit!);
     }),
   },
   "/api/tasks/:id/activity": { GET: authed(({ params }) => activity.byTask(mustTask(params.id!).id, 50)) },

@@ -187,7 +187,7 @@ export async function boot() {
 }
 
 // ---- atajos de teclado (§7) ----
-export const TAB_ORDER: Tab[] = ["research", "plan", "diff"];
+export const TAB_ORDER: Tab[] = ["research", "plan", "files", "diff"];
 
 export function cycleTab() {
   const i = TAB_ORDER.indexOf(state.tab);

@@ -253,6 +253,40 @@ async function main() {
   check("feed de actividad con autor por acción", act.some((a) => a.kind === "phase.run") && act.some((a) => a.kind === "phase.approved") && act.some((a) => a.kind === "comment.created" && a.user_id === ana.user.id));
   check("activity.added llega en vivo", ana2.msgs.some((m) => m.type === "activity.added"));
 
+  // ───────── H9 worktree navegable
+  section("H9 · árbol de archivos, visor y seguridad de rutas");
+  const tree = (await lau2.api<{ path: string; status: "M" | "A" | null }[]>(`/api/tasks/${task.id}/tree`)).data;
+  const st = (p: string) => tree.find((t) => t.path === p)?.status;
+  check("el árbol lista los archivos del worktree", tree.some((t) => t.path === "src/http.ts") && tree.some((t) => t.path === "package.json"));
+  check("marca M en modificados y A en agregados", st("src/middleware/rateLimit.ts") === "M" && st("tests/ratelimit.test.ts") === "A" && st("src/http.ts") === null);
+  check("muestra .flock/<slug>/ con los artefactos de cada fase", tree.some((t) => t.path === `.flock/${task.slug}/research.md`) && tree.some((t) => t.path === `.flock/${task.slug}/plan.md`) && tree.some((t) => t.path === `.flock/${task.slug}/summary.md`));
+  check("no lista .git ni node_modules", !tree.some((t) => t.path.startsWith(".git/") || t.path === ".git" || t.path.includes("node_modules")));
+  const f = (path: string) => lau2.api<any>(`/api/tasks/${task.id}/file?path=${encodeURIComponent(path)}`);
+  const ok = await f("src/middleware/rateLimit.ts");
+  check("el visor devuelve el contenido", ok.status === 200 && ok.data.content.includes("Retry-After") && !ok.data.binary);
+  check("`../` → 400", (await f("../../../../Windows/win.ini")).status === 400);
+  check("barras invertidas → 400", (await f(`..${String.fromCharCode(92)}..${String.fromCharCode(92)}x`)).status === 400);
+  check("ruta absoluta → 400", (await f("C:/Windows/win.ini")).status === 400 && (await f("/etc/passwd")).status === 400);
+  check(".git/config y .git → 400", (await f(".git/config")).status === 400 && (await f(".git")).status === 400);
+  const outside = join(tmp, "afuera");
+  Bun.spawnSync(["node", "-e", `require('fs').mkdirSync(${JSON.stringify(outside)});require('fs').writeFileSync(${JSON.stringify(join(outside, "secreto.txt"))},"secreto")`]);
+  try {
+    symlinkSync(outside, join(wt, "escape"), "junction");
+    check("symlink/junction que apunta afuera → 400", (await f("escape/secreto.txt")).status === 400);
+  } catch (e) {
+    console.log(`  - (omitido) no se pudo crear el enlace simbólico: ${e}`);
+  }
+  check("archivo inexistente → 404", (await f("nada.txt")).status === 404);
+  writeFileSync(join(wt, "grande.txt"), "x".repeat(600 * 1024));
+  writeFileSync(join(wt, "bin.dat"), Buffer.from([1, 2, 0, 3, 4]));
+  const big = await f("grande.txt");
+  check("archivo grande se recorta a 512 KB", big.data.truncated === true && big.data.content.length === 512 * 1024);
+  const bin = await f("bin.dat");
+  check("binario devuelve solo metadatos", bin.data.binary === true && bin.data.content === null);
+  const cm = (await lau2.api<{ subject: string; author: string }[]>(`/api/tasks/${task.id}/commits`)).data;
+  check("commits de fase con autor", cm.length === 3 && cm.some((c) => c.subject.startsWith("research:") && c.author === "Ana") && cm.some((c) => c.subject.startsWith("implement:")), JSON.stringify(cm));
+  check("worktree.changed se emitió durante la ejecución", lau.msgs.some((m) => m.type === "worktree.changed"));
+
   // (los hitos siguientes agregan sus pasos acá)
 
   await stopServer();
